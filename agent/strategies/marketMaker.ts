@@ -1,0 +1,100 @@
+/**
+ * Market Maker Strategy
+ *
+ * Profits from spread by maintaining balanced positions.
+ * Buys when RSI is oversold (<30), sells when overbought (>70).
+ * Keeps portfolio diversified across all tracked assets.
+ */
+
+import { PriceData } from "./momentum";
+
+interface AssetState {
+  prices: number[];
+  position: number;    // -1 short, 0 neutral, 1 long
+  entryPrice: number;
+}
+
+export class MarketMakerStrategy {
+  private assets: Record<string, AssetState> = {};
+  private readonly RSI_PERIOD = 14;
+  private readonly OVERSOLD = 30;
+  private readonly OVERBOUGHT = 70;
+  private portfolio = 1000; // $1000 virtual
+
+  addPriceData(data: PriceData): void {
+    for (const asset of ["BTC", "ETH", "SOL"]) {
+      if (!this.assets[asset]) {
+        this.assets[asset] = { prices: [], position: 0, entryPrice: 0 };
+      }
+      const price = data[asset as keyof PriceData] as number;
+      if (typeof price === "number") {
+        this.assets[asset].prices.push(price);
+        if (this.assets[asset].prices.length > 100) {
+          this.assets[asset].prices.shift();
+        }
+      }
+    }
+  }
+
+  private computeRSI(prices: number[]): number {
+    if (prices.length < this.RSI_PERIOD + 1) return 50; // Neutral default
+
+    let gains = 0, losses = 0;
+    for (let i = prices.length - this.RSI_PERIOD; i < prices.length; i++) {
+      const delta = prices[i] - prices[i - 1];
+      if (delta > 0) gains += delta;
+      else losses += Math.abs(delta);
+    }
+
+    if (losses === 0) return 100;
+    const rs = gains / losses;
+    return 100 - 100 / (1 + rs);
+  }
+
+  computeTrades(): Array<{ asset: string; side: "buy" | "sell"; sizePercent: number; reason: string }> {
+    const trades = [];
+
+    for (const [asset, state] of Object.entries(this.assets)) {
+      if (state.prices.length < 2) continue;
+
+      const rsi = this.computeRSI(state.prices);
+
+      if (rsi < this.OVERSOLD && state.position !== 1) {
+        trades.push({ asset, side: "buy" as const, sizePercent: 20, reason: `RSI ${rsi.toFixed(1)} oversold` });
+      } else if (rsi > this.OVERBOUGHT && state.position !== -1) {
+        trades.push({ asset, side: "sell" as const, sizePercent: 20, reason: `RSI ${rsi.toFixed(1)} overbought` });
+      }
+    }
+
+    return trades;
+  }
+
+  executeTrade(asset: string, side: "buy" | "sell", _sizePercent: number, price: number): void {
+    const state = this.assets[asset];
+    if (!state) return;
+    state.position = side === "buy" ? 1 : -1;
+    state.entryPrice = price;
+  }
+
+  calculatePnLBps(currentPrices: PriceData): { publicPnlBps: number; gcEncoded: number } {
+    let totalPnlBps = 0;
+    let activePositions = 0;
+
+    for (const [asset, state] of Object.entries(this.assets)) {
+      if (state.position === 0 || state.entryPrice === 0) continue;
+
+      const currentPrice = currentPrices[asset as keyof PriceData] as number;
+      if (typeof currentPrice !== "number") continue;
+
+      const priceDelta = (currentPrice - state.entryPrice) / state.entryPrice;
+      const positionPnlBps = state.position * priceDelta * 10000;
+      totalPnlBps += positionPnlBps;
+      activePositions++;
+    }
+
+    const avgPnlBps = activePositions > 0 ? Math.round(totalPnlBps / activePositions) : 0;
+    const gcEncoded = avgPnlBps + 100_000_000;
+
+    return { publicPnlBps: avgPnlBps, gcEncoded };
+  }
+}

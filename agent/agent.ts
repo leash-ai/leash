@@ -13,6 +13,7 @@ import { ethers } from "ethers";
 import axios from "axios";
 import { MomentumStrategy, PriceData } from "./strategies/momentum";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
+import { MarketMakerStrategy } from "./strategies/marketMaker";
 
 dotenv.config();
 
@@ -21,7 +22,7 @@ dotenv.config();
 const COTI_RPC = "https://testnet.coti.io/rpc";
 const DUEL_MANAGER_ADDRESS = process.env.DUEL_MANAGER_ADDRESS!;
 const PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY!;
-const STRATEGY = (process.env.STRATEGY || "momentum") as "momentum" | "meanReversion";
+const STRATEGY = (process.env.STRATEGY || "momentum") as "momentum" | "meanReversion" | "marketMaker";
 const STAKE_ETH = process.env.STAKE_ETH || "0.01";
 const UPDATE_INTERVAL_MS = parseInt(process.env.UPDATE_INTERVAL_MS || "30000"); // 30s default
 
@@ -103,7 +104,9 @@ async function runDuel(duelId: number) {
   const strategy =
     STRATEGY === "momentum"
       ? new MomentumStrategy(1000)
-      : new MeanReversionStrategy();
+      : STRATEGY === "meanReversion"
+      ? new MeanReversionStrategy()
+      : new MarketMakerStrategy();
 
   console.log(`\n🤖 Leash Agent starting`);
   console.log(`   Address  : ${wallet.address}`);
