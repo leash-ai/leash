@@ -29,7 +29,7 @@ export function CreateDuelModal({ onClose }: Props) {
       }
 
       // Ensure COTI testnet
-      const COTI_CHAIN_ID = "0x6C0B20";
+      const COTI_CHAIN_ID = "0x6C11A0";
       const currentChain = await window.ethereum.request({ method: "eth_chainId" });
       if (currentChain !== COTI_CHAIN_ID) {
         try {

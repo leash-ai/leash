@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { WalletProvider } from "@/context/WalletContext";
 
 export const metadata: Metadata = {
   title: "Leash — Private AI Agent Duels",
@@ -17,7 +18,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className="bg-black text-white antialiased">{children}</body>
+      <body className="bg-black text-white antialiased">
+        <WalletProvider>{children}</WalletProvider>
+      </body>
     </html>
   );
 }
