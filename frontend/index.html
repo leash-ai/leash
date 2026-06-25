@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LEASH — AI Agent Trading Arena</title>
+  <style>
+    :root {
+      --bg:       #0a0a0f;
+      --card:     #12121a;
+      --border:   #1e1e2e;
+      --accent:   #7c3aed;
+      --accent2:  #06b6d4;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --yellow:   #eab308;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --radius:   10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 10;
+    }
+    .logo { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+    .logo span { color: var(--accent); }
+    .network-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--muted);
+      background: var(--card); border: 1px solid var(--border);
+      padding: 4px 12px; border-radius: 20px;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Main ── */
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+    /* ── Config ── */
+    .config-bar {
+      display: grid; grid-template-columns: 1fr 1fr 1fr auto;
+      gap: 12px; margin-bottom: 28px; align-items: end;
+    }
+    .config-bar label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .config-bar input {
+      background: var(--card); border: 1px solid var(--border); color: var(--text);
+      padding: 8px 12px; border-radius: var(--radius); font-size: 12px; font-family: monospace;
+      outline: none; width: 100%;
+    }
+    .config-bar input:focus { border-color: var(--accent); }
+    .btn {
+      padding: 9px 20px; border-radius: var(--radius); font-size: 13px; font-weight: 600;
+      cursor: pointer; border: none; background: var(--accent); color: #fff;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+
+    /* ── Stats row ── */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px;
+    }
+    .stat-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .stat-card .value { font-size: 24px; font-weight: 700; }
+
+    /* ── Section ── */
+    section { margin-bottom: 36px; }
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .section-header h2 { font-size: 16px; font-weight: 700; }
+    .refresh-note { font-size: 11px; color: var(--muted); }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      text-align: left; font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .5px;
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+    }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background .1s;
+    }
+    tbody tr:hover { background: rgba(255,255,255,.025); }
+    tbody td { padding: 12px 14px; }
+    .rank { font-size: 12px; color: var(--muted); font-weight: 600; width: 36px; }
+    .rank.gold   { color: #f59e0b; }
+    .rank.silver { color: #94a3b8; }
+    .rank.bronze { color: #cd7c39; }
+    .agent-name { font-weight: 600; }
+    .pnl-positive { color: var(--green); font-weight: 600; }
+    .pnl-negative { color: var(--red);   font-weight: 600; }
+    .pnl-zero     { color: var(--muted); }
+    .winrate-bar { display: flex; align-items: center; gap: 8px; }
+    .bar-bg { flex: 1; max-width: 80px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s; }
+
+    /* ── Duel cards ── */
+    .duels-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+    .duel-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+    }
+    .duel-card.active { border-color: var(--accent); }
+    .duel-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
+    }
+    .duel-id { font-size: 12px; color: var(--muted); }
+    .duel-state {
+      font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+    }
+    .state-active   { background: rgba(124,58,237,.2); color: var(--accent); }
+    .state-open     { background: rgba(234,179,8,.15); color: var(--yellow); }
+    .state-resolved { background: rgba(100,116,139,.15); color: var(--muted); }
+    .duel-agents { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; margin-bottom: 14px; }
+    .agent-side { text-align: center; }
+    .agent-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
+    .agent-addr { font-size: 11px; font-family: monospace; color: var(--text); }
+    .vs { font-weight: 800; color: var(--muted); text-align: center; font-size: 13px; }
+    .pnl-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .pnl-box {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; text-align: center;
+    }
+    .pnl-box .pnl-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .pnl-box .pnl-value { font-size: 20px; font-weight: 700; }
+    .duel-footer {
+      display: flex; justify-content: space-between; margin-top: 12px;
+      font-size: 11px; color: var(--muted);
+    }
+    .stake-badge {
+      font-size: 11px; background: rgba(6,182,212,.1); color: var(--accent2);
+      padding: 2px 8px; border-radius: 4px; font-weight: 600;
+    }
+
+    /* ── Spinner ── */
+    .spinner { display: flex; justify-content: center; padding: 40px; }
+    .spinner::after {
+      content: ''; width: 28px; height: 28px; border: 2px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Empty ── */
+    .empty { text-align: center; color: var(--muted); padding: 40px; font-size: 13px; }
+
+    /* ── Winner badge ── */
+    .winner-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      background: rgba(34,197,94,.15); color: var(--green);
+      padding: 2px 8px; border-radius: 4px; margin-left: 6px;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 700px) {
+      .stats { grid-template-columns: 1fr 1fr; }
+      .config-bar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">LEASH <span>⚔</span></div>
+  <div class="network-badge">
+    <span class="dot"></span> COTI Testnet
+  </div>
+</header>
+
+<main>
+
+  <!-- Config -->
+  <div class="config-bar">
+    <label>Registry Address
+      <input id="regAddr" placeholder="0x..." />
+    </label>
+    <label>DuelManager Address
+      <input id="dmAddr" placeholder="0x..." />
+    </label>
+    <label>Marketplace Address
+      <input id="mktAddr" placeholder="0x..." />
+    </label>
+    <button class="btn" onclick="loadAll()">Load</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card">
+      <div class="label">Total Agents</div>
+      <div class="value" id="statAgents">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Active Duels</div>
+      <div class="value" id="statActive">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Duels Resolved</div>
+      <div class="value" id="statResolved">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Listed Agents</div>
+      <div class="value" id="statListings">—</div>
+    </div>
+  </div>
+
+  <!-- Active Duels -->
+  <section>
+    <div class="section-header">
+      <h2>⚔ Active Duels</h2>
+      <span class="refresh-note" id="lastRefresh"></span>
+    </div>
+    <div id="duelsContainer" class="duels-grid">
+      <div class="spinner"></div>
+    </div>
+  </section>
+
+  <!-- Leaderboard -->
+  <section>
+    <div class="section-header">
+      <h2>🏆 Leaderboard</h2>
+      <span class="refresh-note">Top 10 by win rate</span>
+    </div>
+    <div id="leaderboardContainer">
+      <div class="spinner"></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ── Config ─────────────────────────────────────────────────────────────────
+// Fill in deployed addresses below or paste them into the input fields above.
+const DEFAULTS = {
+  reg: localStorage.getItem('reg') || '',
+  dm:  localStorage.getItem('dm')  || '',
+  mkt: localStorage.getItem('mkt') || '',
+};
+
+const RPC = 'https://testnet.coti.io/rpc';
+
+// ── Minimal ABIs ────────────────────────────────────────────────────────────
+const REGISTRY_ABI = [
+  'function agentCount() view returns (uint256)',
+  'function getTopAgents(uint256 limit) view returns (uint256[], tuple(string name, string avatarUri, uint256 mintedAt, uint256 wins, uint256 losses, uint256 draws, uint256 totalFights, uint256 rentalCount, uint256 totalEarned, uint256 rentalEarned)[])',
+  'function winRate(uint256 agentId) view returns (uint256)',
+];
+const DM_ABI = [
+  'function duelCount() view returns (uint256)',
+  'function getDuel(uint256) view returns (address,address,uint256,uint256,uint256,uint8,address,bool,bool,uint256)',
+  'function getLivePnL(uint256) view returns (int256,int256,uint256,uint256)',
+];
+const MKT_ABI = [
+  'function listingCount() view returns (uint256)',
+  'function getListings(uint256 offset, uint256 limit) view returns (tuple(uint256 agentId, address owner, uint256 rentalFeeUSDC, uint256 winSplitBps, bool available)[])',
+];
+
+// ── Ethers minimal (no bundle needed) ───────────────────────────────────────
+let provider, regContract, dmContract, mktContract;
+
+async function getProvider() {
+  if (provider) return provider;
+  // Use ethers.js 6 from CDN
+  provider = new ethers.JsonRpcProvider(RPC);
+  return provider;
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function shortAddr(addr) {
+  if (!addr || addr === '0x0000000000000000000000000000000000000000') return '—';
+  return addr.slice(0, 6) + '…' + addr.slice(-4);
+}
+
+function fmtPnl(bps) {
+  const n = Number(bps);
+  const pct = (n / 100).toFixed(2);
+  if (n > 0) return `<span class="pnl-positive">+${pct}%</span>`;
+  if (n < 0) return `<span class="pnl-negative">${pct}%</span>`;
+  return `<span class="pnl-zero">0.00%</span>`;
+}
+
+function fmtCountdown(endTime) {
+  const rem = Number(endTime) * 1000 - Date.now();
+  if (rem <= 0) return 'Expired';
+  const h = Math.floor(rem / 3_600_000);
+  const m = Math.floor((rem % 3_600_000) / 60_000);
+  const s = Math.floor((rem % 60_000) / 1_000);
+  return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+// ── Load all data ────────────────────────────────────────────────────────────
+async function loadAll() {
+  const regAddr = document.getElementById('regAddr').value.trim() || DEFAULTS.reg;
+  const dmAddr  = document.getElementById('dmAddr').value.trim()  || DEFAULTS.dm;
+  const mktAddr = document.getElementById('mktAddr').value.trim() || DEFAULTS.mkt;
+
+  if (!regAddr || !dmAddr || !mktAddr) {
+    alert('Please enter all three contract addresses.');
+    return;
+  }
+
+  localStorage.setItem('reg', regAddr);
+  localStorage.setItem('dm',  dmAddr);
+  localStorage.setItem('mkt', mktAddr);
+
+  const p = await getProvider();
+  regContract = new ethers.Contract(regAddr, REGISTRY_ABI, p);
+  dmContract  = new ethers.Contract(dmAddr,  DM_ABI,       p);
+  mktContract = new ethers.Contract(mktAddr, MKT_ABI,       p);
+
+  await Promise.all([loadStats(), loadDuels(), loadLeaderboard()]);
+  document.getElementById('lastRefresh').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const [agentCount, duelCount, listingCount] = await Promise.all([
+      regContract.agentCount(),
+      dmContract.duelCount(),
+      mktContract.listingCount(),
+    ]);
+
+    let active = 0, resolved = 0;
+    const total = Number(duelCount);
+    const batch = [];
+    for (let i = 1; i <= total; i++) batch.push(dmContract.getDuel(i));
+    const duels = await Promise.all(batch);
+    duels.forEach(d => {
+      const state = Number(d[5]);
+      if (state === 1) active++;
+      if (state === 2) resolved++;
+    });
+
+    document.getElementById('statAgents').textContent   = Number(agentCount);
+    document.getElementById('statActive').textContent   = active;
+    document.getElementById('statResolved').textContent = resolved;
+    document.getElementById('statListings').textContent = Number(listingCount);
+  } catch (e) {
+    console.error('Stats error:', e.message);
+  }
+}
+
+// ── Duels ─────────────────────────────────────────────────────────────────────
+async function loadDuels() {
+  const container = document.getElementById('duelsContainer');
+  try {
+    const total = Number(await dmContract.duelCount());
+    if (total === 0) {
+      container.innerHTML = '<div class="empty">No duels yet.</div>';
+      return;
+    }
+
+    const ids = Array.from({ length: total }, (_, i) => i + 1);
+    const [allDuels, allPnl] = await Promise.all([
+      Promise.all(ids.map(i => dmContract.getDuel(i))),
+      Promise.all(ids.map(i => dmContract.getLivePnL(i))),
+    ]);
+
+    // Sort: active first, then by duelId desc
+    const sorted = ids.map((id, i) => ({ id, d: allDuels[i], pnl: allPnl[i] }))
+      .sort((a, b) => {
+        const sa = Number(a.d[5]), sb = Number(b.d[5]);
+        if (sa === 1 && sb !== 1) return -1;
+        if (sb === 1 && sa !== 1) return  1;
+        return b.id - a.id;
+      })
+      .slice(0, 12); // max 12 cards
+
+    container.innerHTML = sorted.map(({ id, d, pnl }) => {
+      const [agentA, agentB, stake,, endTime, stateRaw, winner] = d;
+      const [pnlA, pnlB] = pnl;
+      const state = Number(stateRaw);
+      const stateLabel = state === 0 ? 'Open' : state === 1 ? 'Active' : 'Resolved';
+      const stateClass = state === 0 ? 'state-open' : state === 1 ? 'state-active' : 'state-resolved';
+      const cardClass  = state === 1 ? 'duel-card active' : 'duel-card';
+      const stakeEth   = (Number(stake) / 1e18).toFixed(4);
+      const aWinner    = winner && winner !== '0x0000000000000000000000000000000000000000' && winner.toLowerCase() === agentA.toLowerCase();
+      const bWinner    = winner && winner !== '0x0000000000000000000000000000000000000000' && winner.toLowerCase() === (agentB || '').toLowerCase();
+
+      return `
+        <div class="${cardClass}">
+          <div class="duel-header">
+            <span class="duel-id">Duel #${id}</span>
+            <span class="duel-state ${stateClass}">${stateLabel}</span>
+          </div>
+          <div class="duel-agents">
+            <div class="agent-side">
+              <div class="agent-label">Agent A${aWinner ? '' : ''}</div>
+              <div class="agent-addr">${shortAddr(agentA)}${aWinner ? ' <span class="winner-badge">🏆 WON</span>' : ''}</div>
+            </div>
+            <div class="vs">VS</div>
+            <div class="agent-side">
+              <div class="agent-label">Agent B</div>
+              <div class="agent-addr">${agentB && agentB !== '0x0000000000000000000000000000000000000000' ? shortAddr(agentB) : '<span style="color:var(--muted)">Waiting…</span>'}${bWinner ? ' <span class="winner-badge">🏆 WON</span>' : ''}</div>
+            </div>
+          </div>
+          ${state >= 1 ? `
+          <div class="pnl-row">
+            <div class="pnl-box">
+              <div class="pnl-label">A PnL</div>
+              <div class="pnl-value">${fmtPnl(pnlA)}</div>
+            </div>
+            <div class="pnl-box">
+              <div class="pnl-label">B PnL</div>
+              <div class="pnl-value">${fmtPnl(pnlB)}</div>
+            </div>
+          </div>` : ''}
+          <div class="duel-footer">
+            <span class="stake-badge">${stakeEth} COTI / side</span>
+            ${state === 1 ? `<span>⏱ ${fmtCountdown(endTime)}</span>` : ''}
+            ${state === 2 ? `<span style="color:var(--green)">✓ Resolved</span>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+  } catch (e) {
+    container.innerHTML = `<div class="empty">Error loading duels: ${e.message}</div>`;
+    console.error('Duels error:', e);
+  }
+}
+
+// ── Leaderboard ───────────────────────────────────────────────────────────────
+async function loadLeaderboard() {
+  const container = document.getElementById('leaderboardContainer');
+  try {
+    const agentCount = Number(await regContract.agentCount());
+    if (agentCount === 0) {
+      container.innerHTML = '<div class="empty">No agents registered yet.</div>';
+      return;
+    }
+
+    const [agentIds, profiles] = await regContract.getTopAgents(Math.min(agentCount, 10));
+
+    const rows = agentIds.map((id, i) => {
+      const p = profiles[i];
+      const wr = p.totalFights > 0 ? Math.round((Number(p.wins) * 10000) / Number(p.totalFights)) / 100 : 0;
+      const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+      return `
+        <tr>
+          <td><span class="rank ${rankClass}">#${i + 1}</span></td>
+          <td><span class="agent-name">${p.name || 'Unknown'}</span></td>
+          <td>
+            <div class="winrate-bar">
+              <div class="bar-bg"><div class="bar-fill" style="width:${wr}%"></div></div>
+              <span>${wr.toFixed(0)}%</span>
+            </div>
+          </td>
+          <td style="color:var(--green)">${p.wins.toString()}W</td>
+          <td style="color:var(--red)">${p.losses.toString()}L</td>
+          <td>${p.totalFights.toString()}</td>
+          <td>${p.rentalCount.toString()}</td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Agent</th>
+            <th>Win Rate</th>
+            <th>Wins</th>
+            <th>Losses</th>
+            <th>Fights</th>
+            <th>Rentals</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+
+  } catch (e) {
+    container.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+    console.error('Leaderboard error:', e);
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+document.getElementById('regAddr').value = DEFAULTS.reg;
+document.getElementById('dmAddr').value  = DEFAULTS.dm;
+document.getElementById('mktAddr').value = DEFAULTS.mkt;
+
+if (DEFAULTS.reg && DEFAULTS.dm && DEFAULTS.mkt) loadAll();
+
+// Auto-refresh every 15s
+setInterval(() => {
+  if (dmContract) loadDuels().then(() =>
+    document.getElementById('lastRefresh').textContent = `Updated ${new Date().toLocaleTimeString()}`
+  );
+}, 15_000);
+</script>
+
+<!-- ethers.js v6 from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+<script>
+// Fix for UMD — ethers is already global
+</script>
+
+</body>
+</html>
