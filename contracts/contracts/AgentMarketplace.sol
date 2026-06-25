@@ -45,6 +45,7 @@ contract AgentMarketplace {
 
     struct RentalAgreement {
         uint256 listingId;
+        uint256 agentId;    // stored at rental time — avoids agentOf lookup in settleRental
         uint256 duelId;
         address renter;
         address agentOwner;
@@ -88,7 +89,10 @@ contract AgentMarketplace {
     function listAgent(uint256 agentId, uint256 rentalFeeUSDC, uint256 winSplitBps)
         external returns (uint256 listingId)
     {
-        require(registry.ownerOf(agentId) == msg.sender, "Not your agent");
+        // MPC ownership proof — marketplace passes msg.sender as claimant.
+        // Registry compares it against the encrypted stored owner via MpcCore.eq().
+        // Never decrypts or reveals the stored owner address.
+        require(registry.proveOwnership(agentId, msg.sender), "Not your agent");
         require(winSplitBps <= 9000, "Max split 90%");
         require(rentalFeeUSDC > 0, "Fee required");
 
@@ -151,14 +155,15 @@ contract AgentMarketplace {
 
         rentalId = ++rentalCount;
         rentals[rentalId] = RentalAgreement({
-            listingId: listingId,
-            duelId: duelId,
-            renter: msg.sender,
-            agentOwner: l.owner,
+            listingId:    listingId,
+            agentId:      l.agentId,   // stored directly — no agentOf lookup needed at settle
+            duelId:       duelId,
+            renter:       msg.sender,
+            agentOwner:   l.owner,
             rentalFeeUSDC: fee,
-            winSplitBps: l.winSplitBps,
-            stake: msg.value,
-            settled: false
+            winSplitBps:  l.winSplitBps,
+            stake:        msg.value,
+            settled:      false
         });
 
         duelToRental[duelId] = rentalId;
@@ -213,11 +218,11 @@ contract AgentMarketplace {
         // agentWon means the owner's agent (agentB) won.
         bool agentWon = (winner != address(0)) && (winner != agentA);
 
-        uint256 agentId = registry.agentOf(r.agentOwner);
-        if (agentId > 0) {
+        // agentId stored at rental time — no registry.agentOf lookup needed
+        // (agentOf is no longer publicly exposed on AgentRegistry)
+        if (r.agentId > 0) {
             (, int256 pnlB,,) = duelManager.getLivePnL(r.duelId);
-            // Owner's agent is always agentB — use pnlB
-            registry.recordFight(agentId, agentWon, false, pnlB, agentWon ? r.stake * 2 : 0);
+            registry.recordFight(r.agentId, agentWon, false, pnlB, agentWon ? r.stake * 2 : 0);
         }
 
         emit RentalSettled(rentalId, agentWon);

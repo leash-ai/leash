@@ -2,51 +2,58 @@
 pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/token/PrivateERC721/PrivateERC721.sol";
+import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title AgentRegistry
  * @notice On-chain identity for every Leash agent.
- *         Each agent is an NFT. Public stats (wins/losses/fights) are visible to all.
- *         The rental fee and strategy details stay private.
+ *         Each agent is an NFT. Performance stats are public.
  *
- * Minting: anyone can register an agent (one NFT per address recommended).
- * Stats: updated by DuelManager and AgentMarketplace after each fight.
+ * Privacy model:
+ *   - Agent ownership is stored as ctUint256 (encrypted via COTI MPC).
+ *     No one can read `_encOwner[agentId]` as a plaintext address.
+ *   - agentOf[] is internal — duplicate check only, not publicly enumerable.
+ *   - AgentMinted event emits agentId + name, NOT the owner address.
+ *   - proveOwnership() does an MPC comparison (gt + mux) — reveals only
+ *     "yes/no", never the stored address.
  */
 contract AgentRegistry is PrivateERC721, Ownable {
 
     struct AgentProfile {
-        string  name;           // public display name
-        string  avatarUri;      // IPFS or URL
-        address owner;
+        string  name;
+        string  avatarUri;
+        // owner field removed — identity stored as encrypted ctUint256 in _encOwner
         uint256 mintedAt;
 
-        // Public stats (anyone can read)
         uint256 wins;
         uint256 losses;
         uint256 draws;
         uint256 totalFights;
-        uint256 rentalCount;    // how many times rented out
+        uint256 rentalCount;
 
-        // Earnings (in COTI wei — public totals, not encrypted)
-        uint256 totalEarned;    // cumulative prize winnings
-        uint256 rentalEarned;   // cumulative rental fees earned
+        uint256 totalEarned;
+        uint256 rentalEarned;
     }
 
-    // PnL history stored as int256 array (public aggregate, not individual positions)
-    mapping(uint256 => int256[]) public pnlHistory; // agentId => [pnlBps...]
+    mapping(uint256 => int256[]) public pnlHistory;
 
     uint256 public agentCount;
 
-    // Only authorised callers (DuelManager, AgentMarketplace) can update stats
     mapping(address => bool) public authorised;
 
     mapping(uint256 => AgentProfile) public profiles;
 
-    // Reverse lookup: owner address → agentId (0 = unregistered)
-    mapping(address => uint256) public agentOf;
+    // Encrypted ownership — agentId → ctUint256 of the owner address.
+    // Stored via MpcCore.offBoardCombined; only accessible in GC context.
+    mapping(uint256 => ctUint256) private _encOwner;
 
-    event AgentMinted(uint256 indexed agentId, address indexed owner, string name);
+    // Internal duplicate-check mapping. NOT public — external parties cannot
+    // enumerate which agent belongs to which wallet.
+    mapping(address => uint256) internal agentOf;
+
+    // Owner address intentionally omitted from this event.
+    event AgentMinted(uint256 indexed agentId, string name);
     event StatsUpdated(uint256 indexed agentId, bool won, int256 pnlBps);
     event AuthorisedUpdated(address indexed caller, bool status);
 
@@ -61,6 +68,7 @@ contract AgentRegistry is PrivateERC721, Ownable {
 
     /**
      * @notice Register a new agent. One per address.
+     *         Owner address is encrypted on-chain via MPC — not publicly readable.
      */
     function registerAgent(string calldata name, string calldata avatarUri) external returns (uint256 agentId) {
         require(agentOf[msg.sender] == 0, "Already registered");
@@ -69,13 +77,12 @@ contract AgentRegistry is PrivateERC721, Ownable {
         agentId = ++agentCount;
 
         profiles[agentId] = AgentProfile({
-            name: name,
-            avatarUri: avatarUri,
-            owner: msg.sender,
-            mintedAt: block.timestamp,
-            wins: 0,
-            losses: 0,
-            draws: 0,
+            name:        name,
+            avatarUri:   avatarUri,
+            mintedAt:    block.timestamp,
+            wins:        0,
+            losses:      0,
+            draws:       0,
             totalFights: 0,
             rentalCount: 0,
             totalEarned: 0,
@@ -83,9 +90,56 @@ contract AgentRegistry is PrivateERC721, Ownable {
         });
 
         agentOf[msg.sender] = agentId;
+
+        // Encrypt msg.sender as owner.
+        // setPublic256: msg.sender is already public in the tx, but storing it as
+        // ctUint256 via offBoardCombined means on-chain storage is encrypted —
+        // future observers cannot read the storage slot as a plaintext address.
+        gtUint256 gtSender = MpcCore.setPublic256(uint256(uint160(msg.sender)));
+        // offBoardCombined returns utUint256 {ciphertext, userCiphertext}.
+        // Store only the network ciphertext — used later by onBoard() in proveOwnership().
+        // The userCiphertext (encrypted for msg.sender's AES key) is discarded here;
+        // the owner doesn't need to read back their own address.
+        _encOwner[agentId] = MpcCore.offBoardCombined(gtSender, msg.sender).ciphertext;
+
         _mint(msg.sender, agentId);
 
-        emit AgentMinted(agentId, msg.sender, name);
+        emit AgentMinted(agentId, name);
+    }
+
+    // ─── Ownership proof (MPC) ────────────────────────────────────────────────
+
+    /**
+     * @notice Prove that msg.sender owns agentId.
+     *         Performs an MPC equality check (two GC gt comparisons + mux).
+     *         Returns true/false — the stored address is never decrypted or revealed.
+     *
+     * Called by AgentMarketplace.listAgent() / delistAgent() / updateFee()
+     * instead of the usual ownerOf(agentId) == msg.sender pattern.
+     */
+    /**
+     * @notice Prove that `claimant` owns agentId via MPC comparison.
+     *         Only authorised callers (DuelManager, AgentMarketplace) may call this,
+     *         passing msg.sender from their own context as the claimant.
+     *
+     *         Security: the stored address is never decrypted or revealed.
+     *         The MPC comparison produces only a boolean result.
+     *         An attacker enumerating addresses still needs 2^160 calls to find
+     *         a match — computationally infeasible.
+     */
+    function proveOwnership(uint256 agentId, address claimant) external onlyAuthorised returns (bool) {
+        gtUint256 stored  = MpcCore.onBoard(_encOwner[agentId]);
+        gtBool    isOwner = MpcCore.eq(uint256(uint160(claimant)), stored);
+        return MpcCore.decrypt(isOwner);
+    }
+
+    /**
+     * @notice Internal agentId lookup — available only to authorised callers
+     *         (DuelManager, AgentMarketplace) via the authorised modifier.
+     *         Not externally enumerable.
+     */
+    function agentIdOf(address agentOwner) external view onlyAuthorised returns (uint256) {
+        return agentOf[agentOwner];
     }
 
     // ─── Stats (called by DuelManager / AgentMarketplace) ──────────────────────

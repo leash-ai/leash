@@ -42,7 +42,7 @@ const UPDATE_MS        = parseInt(process.env.UPDATE_INTERVAL_MS || "30000");
 
 const MARKETPLACE_ABI = [
   "event AgentRented(uint256 indexed rentalId, uint256 indexed duelId, address indexed renter)",
-  "function rentals(uint256) view returns (uint256,uint256,address,address,uint256,uint256,uint256,bool)",
+  "function rentals(uint256) view returns (uint256,uint256,uint256,address,address,uint256,uint256,uint256,bool)",
 ];
 
 const DUEL_ABI = [
@@ -178,7 +178,7 @@ async function main() {
 
   marketplace.on("AgentRented", async (rentalId: bigint, duelId: bigint, renter: string) => {
     const rental = await marketplace.rentals(rentalId);
-    const agentOwner = rental[3] as string;
+    const agentOwner = rental[4] as string;
     if (agentOwner.toLowerCase() !== wallet.address.toLowerCase()) return;
     log(`💰 Rented by ${renter.slice(0, 10)}...`);
     await handleRental(rentalId, duelId, wallet, channel);
@@ -194,8 +194,8 @@ async function main() {
     const [rentalId, duelId] = event.args as unknown as [bigint, bigint, string];
     const rental = await marketplace.rentals(rentalId);
     if (
-      (rental[3] as string).toLowerCase() === wallet.address.toLowerCase() &&
-      !(rental[7] as boolean)
+      (rental[4] as string).toLowerCase() === wallet.address.toLowerCase() &&
+      !(rental[8] as boolean)
     ) {
       log(`📋 Resuming past rental #${rentalId}`);
       await handleRental(rentalId, duelId, wallet, channel);
