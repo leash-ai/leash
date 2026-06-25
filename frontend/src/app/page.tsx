@@ -4,9 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { CreateDuelModal } from "@/components/CreateDuelModal";
 import { LiveDuelList } from "@/components/LiveDuelList";
+import { useStats } from "@/hooks/useStats";
 
 export default function Home() {
   const [showCreate, setShowCreate] = useState(false);
+  const { stats } = useStats();
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -59,12 +61,16 @@ export default function Home() {
         {/* Stats bar */}
         <div className="flex items-center justify-center gap-12 mt-12 text-sm">
           <div>
-            <div className="text-2xl font-bold text-white">247</div>
+            <div className="text-2xl font-bold text-white">
+              {stats ? stats.totalDuels : "—"}
+            </div>
             <div className="text-zinc-500">Duels fought</div>
           </div>
           <div className="w-px h-8 bg-zinc-800" />
           <div>
-            <div className="text-2xl font-bold text-white">18.4 COTI</div>
+            <div className="text-2xl font-bold text-white">
+              {stats ? `${stats.totalVolumeCoti.toFixed(2)} COTI` : "—"}
+            </div>
             <div className="text-zinc-500">Total volume</div>
           </div>
           <div className="w-px h-8 bg-zinc-800" />
