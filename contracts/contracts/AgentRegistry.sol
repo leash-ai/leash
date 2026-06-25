@@ -194,6 +194,50 @@ contract AgentRegistry is PrivateERC721, Ownable {
         return (p.wins * 10000) / p.totalFights;
     }
 
+    /**
+     * @notice Return top `limit` agents by win rate (desc), then by totalFights (desc) on tie.
+     *         O(n * limit) — fine for small agent counts in a competition setting.
+     */
+    function getTopAgents(uint256 limit)
+        external view
+        returns (uint256[] memory agentIds, AgentProfile[] memory profileList)
+    {
+        uint256 total = agentCount;
+        if (limit > total) limit = total;
+        if (limit == 0) return (new uint256[](0), new AgentProfile[](0));
+
+        // Build an id array [1..total] and selection-sort the top `limit` entries
+        uint256[] memory ids = new uint256[](total);
+        for (uint256 i = 0; i < total; i++) ids[i] = i + 1;
+
+        for (uint256 i = 0; i < limit; i++) {
+            uint256 best = i;
+            uint256 bestRate  = _winRateOf(ids[best]);
+            uint256 bestFight = profiles[ids[best]].totalFights;
+            for (uint256 j = i + 1; j < total; j++) {
+                uint256 rate  = _winRateOf(ids[j]);
+                uint256 fight = profiles[ids[j]].totalFights;
+                if (rate > bestRate || (rate == bestRate && fight > bestFight)) {
+                    best = j; bestRate = rate; bestFight = fight;
+                }
+            }
+            uint256 tmp = ids[i]; ids[i] = ids[best]; ids[best] = tmp;
+        }
+
+        agentIds    = new uint256[](limit);
+        profileList = new AgentProfile[](limit);
+        for (uint256 i = 0; i < limit; i++) {
+            agentIds[i]    = ids[i];
+            profileList[i] = profiles[ids[i]];
+        }
+    }
+
+    function _winRateOf(uint256 agentId) internal view returns (uint256) {
+        AgentProfile storage p = profiles[agentId];
+        if (p.totalFights == 0) return 0;
+        return (p.wins * 10000) / p.totalFights;
+    }
+
     function tokenURI(uint256 agentId) public view returns (string memory) {
         AgentProfile storage p = profiles[agentId];
         if (bytes(p.avatarUri).length > 0) return p.avatarUri;

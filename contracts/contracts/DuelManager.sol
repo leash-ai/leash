@@ -9,8 +9,8 @@ pragma solidity ^0.8.19;
  * Strategy stays private: it runs off-chain in the agent owner's rentalListener,
  * and positions never touch the chain.
  *
- * Resolution is deterministic: the last updateLivePnL submitted before endTime
- * is the final score. Higher pnlBps wins.
+ * Resolution: the last updateLivePnL submitted before endTime is the final score.
+ * Higher pnlBps wins. Anyone can call resolveDuel() and earns a resolver bonus.
  */
 contract DuelManager {
 
@@ -20,6 +20,7 @@ contract DuelManager {
         address   agentA;
         address   agentB;
         uint256   stake;
+        uint256   createdAt;   // block.timestamp at creation — used by refundStuck
         uint256   startTime;
         uint256   endTime;
         DuelState state;
@@ -41,13 +42,17 @@ contract DuelManager {
     mapping(address => uint256) public losses;
     mapping(address => uint256) public totalStakeWon;
 
-    uint256 public constant FEE_BPS = 500; // 5%
+    uint256 public constant FEE_BPS          = 500;  // 5% total protocol fee
+    uint256 public constant RESOLVER_FEE_BPS = 50;   // 0.5% to whoever calls resolveDuel
+    uint256 public constant STUCK_TIMEOUT    = 24 hours;
+
     address public immutable feeRecipient;
 
     event DuelCreated(uint256 indexed duelId, address indexed agentA, uint256 stake, uint256 duration);
     event DuelJoined(uint256 indexed duelId, address indexed agentB);
     event LivePnLUpdated(uint256 indexed duelId, address indexed agent, int256 pnlBps);
     event DuelResolved(uint256 indexed duelId, address indexed winner, uint256 prize);
+    event DuelRefunded(uint256 indexed duelId, address indexed agentA, uint256 amount);
 
     constructor(address _feeRecipient) {
         feeRecipient = _feeRecipient;
@@ -69,7 +74,7 @@ contract DuelManager {
         require(msg.sender != duel.agentA, "Cannot duel yourself");
         require(msg.value == duel.stake, "Wrong stake amount");
 
-        uint256 duration = duel.endTime;
+        uint256 duration = duel.endTime; // endTime holds raw duration before join
         duel.agentB    = msg.sender;
         duel.startTime = block.timestamp;
         duel.endTime   = block.timestamp + duration;
@@ -80,7 +85,7 @@ contract DuelManager {
 
     /**
      * @notice Submit live PnL. Can be called multiple times — last value before
-     *         expiry is used in resolution. Callable by agentA or agentB.
+     *         expiry is the final score. Callable by agentA or agentB.
      * @param pnlBps Performance in basis points (e.g. +523 = +5.23%, -210 = -2.10%)
      */
     function updateLivePnL(uint256 duelId, int256 pnlBps) external {
@@ -102,7 +107,8 @@ contract DuelManager {
 
     /**
      * @notice Resolve the duel. Callable by anyone once expired and both agents
-     *         have submitted at least one PnL update. Higher pnlBps wins.
+     *         have submitted. Higher pnlBps wins.
+     *         Caller earns RESOLVER_FEE_BPS (0.5%) of the total stake as a bonus.
      */
     function resolveDuel(uint256 duelId) external {
         Duel storage duel = duels[duelId];
@@ -121,16 +127,35 @@ contract DuelManager {
         wins[winner]++;
         losses[loser]++;
 
-        uint256 totalStake = duel.stake * 2;
-        uint256 fee        = (totalStake * FEE_BPS) / 10000;
-        uint256 prize      = totalStake - fee;
+        uint256 totalStake    = duel.stake * 2;
+        uint256 resolverBonus = (totalStake * RESOLVER_FEE_BPS) / 10000;
+        uint256 protocolFee   = (totalStake * FEE_BPS) / 10000 - resolverBonus;
+        uint256 prize         = totalStake - protocolFee - resolverBonus;
 
         totalStakeWon[winner] += prize;
 
-        if (fee > 0) payable(feeRecipient).transfer(fee);
+        if (protocolFee > 0) payable(feeRecipient).transfer(protocolFee);
+        if (resolverBonus > 0) payable(msg.sender).transfer(resolverBonus);
         payable(winner).transfer(prize);
 
         emit DuelResolved(duelId, winner, prize);
+    }
+
+    /**
+     * @notice Refund agentA if no one joined the duel within STUCK_TIMEOUT (24h).
+     *         Protects renters from having their stake locked forever if the owner's
+     *         daemon is offline.
+     */
+    function refundStuck(uint256 duelId) external {
+        Duel storage duel = duels[duelId];
+        require(duel.state == DuelState.Open, "Duel not open");
+        require(block.timestamp > duel.createdAt + STUCK_TIMEOUT, "Wait 24h after creation");
+
+        duel.state = DuelState.Resolved;
+
+        uint256 amount = duel.stake;
+        emit DuelRefunded(duelId, duel.agentA, amount);
+        payable(duel.agentA).transfer(amount);
     }
 
     function getLivePnL(uint256 duelId) external view returns (
@@ -157,12 +182,13 @@ contract DuelManager {
         uint8   state,
         address winner,
         bool    agentASubmitted,
-        bool    agentBSubmitted
+        bool    agentBSubmitted,
+        uint256 createdAt
     ) {
         Duel storage d = duels[duelId];
         return (
             d.agentA, d.agentB, d.stake, d.startTime, d.endTime,
-            uint8(d.state), d.winner, d.agentASubmitted, d.agentBSubmitted
+            uint8(d.state), d.winner, d.agentASubmitted, d.agentBSubmitted, d.createdAt
         );
     }
 
@@ -187,6 +213,7 @@ contract DuelManager {
             agentA:          msg.sender,
             agentB:          address(0),
             stake:           msg.value,
+            createdAt:       block.timestamp,
             startTime:       0,
             endTime:         duration,
             state:           DuelState.Open,

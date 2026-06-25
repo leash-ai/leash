@@ -197,17 +197,23 @@ contract AgentMarketplace {
         RentalAgreement storage r = rentals[rentalId];
         require(!r.settled, "Already settled");
 
-        (address agentA,,,,, uint8 state, address winner,,) = duelManager.getDuel(r.duelId);
+        (address agentA, address agentB,,,, uint8 state, address winner,,,) = duelManager.getDuel(r.duelId);
         // DuelState.Resolved = 2 (Open=0, Active=1, Resolved=2)
         require(state == 2, "Duel not resolved");
+
+        // If agentB is zero the duel was cancelled or refunded before anyone joined —
+        // skip recordFight to avoid logging a false defeat.
+        if (agentB == address(0)) {
+            r.settled = true;
+            emit RentalSettled(rentalId, false);
+            return;
+        }
 
         r.settled = true;
 
         bool agentWon = (winner != address(0)) && (winner != agentA);
 
         if (r.agentId > 0) {
-            // PnL is now private (encrypted) — pass 0 as pnlBps for registry history.
-            // The winner determination is authoritative; the exact PnL value is kept private.
             registry.recordFight(r.agentId, agentWon, false, 0, agentWon ? r.stake * 2 : 0);
         }
 
