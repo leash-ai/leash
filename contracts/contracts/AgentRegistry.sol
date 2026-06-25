@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@coti-io/coti-contracts/contracts/token/PrivateERC721/PrivateERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 /**
  * @title AgentRegistry
@@ -14,7 +13,7 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
  * Minting: anyone can register an agent (one NFT per address recommended).
  * Stats: updated by DuelManager and AgentMarketplace after each fight.
  */
-contract AgentRegistry is ERC721, Ownable {
+contract AgentRegistry is PrivateERC721, Ownable {
 
     struct AgentProfile {
         string  name;           // public display name
@@ -56,7 +55,7 @@ contract AgentRegistry is ERC721, Ownable {
         _;
     }
 
-    constructor() ERC721("Leash Agent", "AGENT") {}
+    constructor() PrivateERC721("Leash Agent", "AGENT") {}
 
     // ─── Registration ──────────────────────────────────────────────────────────
 
@@ -141,7 +140,7 @@ contract AgentRegistry is ERC721, Ownable {
         return (p.wins * 10000) / p.totalFights;
     }
 
-    function tokenURI(uint256 agentId) public view override returns (string memory) {
+    function tokenURI(uint256 agentId) public view returns (string memory) {
         AgentProfile storage p = profiles[agentId];
         if (bytes(p.avatarUri).length > 0) return p.avatarUri;
         return string(abi.encodePacked("https://leash.ai/agent/", _toString(agentId)));
