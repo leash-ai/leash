@@ -35,6 +35,7 @@ dotenv.config();
 const RPC              = "https://testnet.coti.io/rpc";
 const PRIVATE_KEY      = process.env.AGENT_PRIVATE_KEY!;
 const AES_KEY          = process.env.AES_KEY!;
+const OWNER_ADDRESS    = process.env.OWNER_ADDRESS!;  // only this address can send commands
 const MARKETPLACE_ADDR = process.env.AGENT_MARKETPLACE_ADDRESS!;
 const DUEL_MANAGER_ADDR= process.env.DUEL_MANAGER_ADDRESS!;
 const DEFAULT_STRATEGY = (process.env.STRATEGY || "momentum") as StrategyName;
@@ -160,9 +161,10 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
 }
 
 async function main() {
-  if (!PRIVATE_KEY || !AES_KEY || !MARKETPLACE_ADDR || !DUEL_MANAGER_ADDR) {
+  if (!PRIVATE_KEY || !AES_KEY || !OWNER_ADDRESS || !MARKETPLACE_ADDR || !DUEL_MANAGER_ADDR) {
     console.error("Missing env vars. Required:");
-    console.error("  AGENT_PRIVATE_KEY, AES_KEY, AGENT_MARKETPLACE_ADDRESS, DUEL_MANAGER_ADDRESS");
+    console.error("  AGENT_PRIVATE_KEY, AES_KEY, OWNER_ADDRESS,");
+    console.error("  AGENT_MARKETPLACE_ADDRESS, DUEL_MANAGER_ADDRESS");
     console.error("Run: ts-node messaging/setup.ts agent  (to generate AES_KEY)");
     process.exit(1);
   }
@@ -171,8 +173,8 @@ async function main() {
   const wallet   = new ethers.Wallet(PRIVATE_KEY, provider);
   const marketplace = new ethers.Contract(MARKETPLACE_ADDR, MARKETPLACE_ABI, provider);
 
-  // Start the private command channel
-  const channel = new CommandChannel(PRIVATE_KEY, AES_KEY, { strategy: DEFAULT_STRATEGY });
+  // Start the private command channel — only OWNER_ADDRESS can send commands
+  const channel = new CommandChannel(PRIVATE_KEY, AES_KEY, OWNER_ADDRESS, { strategy: DEFAULT_STRATEGY });
   channel.start();
 
   log(`🎧 Rental Listener started`);

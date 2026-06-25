@@ -4,7 +4,10 @@
  * You send JSON commands from your wallet to your agent's wallet.
  * Nobody else can read them (end-to-end encrypted via COTI garbled circuits).
  *
- * The agent polls its inbox every POLL_MS during an active duel.
+ * Security:
+ *   - Only messages from `ownerAddress` are applied. Others are silently dropped.
+ *   - processedCount is persisted to .leash-cursor-<agentAddr>.json between restarts
+ *     so old messages are never replayed after a crash.
  *
  * Commands:
  *   { "cmd": "setStrategy", "value": "momentum" | "meanReversion" | "marketMaker" }
@@ -16,6 +19,8 @@
 import { createPrivateMessagingClient, listInbox } from "@coti-io/coti-sdk-private-messaging";
 import { Wallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
+import * as fs from "fs";
+import * as path from "path";
 
 export type StrategyName = "momentum" | "meanReversion" | "marketMaker";
 
@@ -42,16 +47,24 @@ function log(msg: string) {
 export class CommandChannel {
   private config: AgentConfig;
   private wallet: Wallet;
+  private ownerAddress: string;
   private processedCount = 0;
+  private cursorFile: string;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
 
   private onConfigChange?: (config: AgentConfig) => void;
 
-  constructor(privateKey: string, aesKey: string, initialConfig?: Partial<AgentConfig>) {
+  constructor(
+    privateKey: string,
+    aesKey: string,
+    ownerAddress: string,
+    initialConfig?: Partial<AgentConfig>
+  ) {
     const provider = new JsonRpcProvider(RPC);
     this.wallet = new Wallet(privateKey, provider);
     this.wallet.setAesKey(aesKey);
+    this.ownerAddress = ownerAddress.toLowerCase();
 
     this.config = {
       strategy:    initialConfig?.strategy    ?? "momentum",
@@ -59,6 +72,33 @@ export class CommandChannel {
       focusAssets: initialConfig?.focusAssets ?? null,
       paused:      initialConfig?.paused      ?? false,
     };
+
+    // Cursor file persists processedCount across restarts
+    const agentAddr = new Wallet(privateKey).address.toLowerCase().slice(2, 10);
+    this.cursorFile = path.join(process.cwd(), `.leash-cursor-${agentAddr}.json`);
+    this.loadCursor();
+  }
+
+  private loadCursor() {
+    try {
+      if (fs.existsSync(this.cursorFile)) {
+        const data = JSON.parse(fs.readFileSync(this.cursorFile, "utf8"));
+        if (typeof data.processedCount === "number") {
+          this.processedCount = data.processedCount;
+          log(`📁 Cursor restored: ${this.processedCount} messages already processed`);
+        }
+      }
+    } catch {
+      // Corrupt file — start from 0 (messages since daemon started)
+    }
+  }
+
+  private saveCursor() {
+    try {
+      fs.writeFileSync(this.cursorFile, JSON.stringify({ processedCount: this.processedCount }));
+    } catch {
+      // Non-fatal
+    }
   }
 
   getConfig(): AgentConfig { return { ...this.config }; }
@@ -71,6 +111,7 @@ export class CommandChannel {
     if (this.running) return;
     this.running = true;
     log(`📡 Command channel started — polling every ${POLL_MS / 1000}s`);
+    log(`   Accepting commands from: ${this.ownerAddress}`);
     this.poll();
   }
 
@@ -84,7 +125,6 @@ export class CommandChannel {
     try {
       await this.checkInbox();
     } catch (e) {
-      // Non-fatal — log and continue
       log(`⚠️  Inbox poll error: ${(e as Error).message?.slice(0, 60)}`);
     }
 
@@ -114,7 +154,14 @@ export class CommandChannel {
 
     for (const msg of result.messages) {
       this.processedCount++;
-      const raw = msg.plaintext?.trim();
+
+      // Security: only apply commands from the authorised owner
+      if ((msg as any).from?.toLowerCase() !== this.ownerAddress) {
+        log(`🚫 Dropped message from unknown sender: ${(msg as any).from?.slice(0, 10)}`);
+        continue;
+      }
+
+      const raw = (msg as any).plaintext?.trim();
       if (!raw) continue;
 
       try {
@@ -124,6 +171,9 @@ export class CommandChannel {
         log(`⚠️  Unparseable message: ${raw?.slice(0, 40)}`);
       }
     }
+
+    // Persist cursor after every batch so restarts don't replay old messages
+    this.saveCursor();
   }
 
   private applyCommand(cmd: AgentCommand) {
