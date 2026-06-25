@@ -2,6 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/token/PrivateERC20/IPrivateERC20.sol";
+import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "./AgentRegistry.sol";
 import "./DuelManager.sol";
 
@@ -168,6 +169,30 @@ contract AgentMarketplace {
         emit AgentRented(rentalId, duelId, msg.sender);
     }
 
+    // ─── Renter PnL proxy ─────────────────────────────────────────────────────
+
+    /**
+     * @notice Renter submits live PnL update for their side of the duel.
+     *         The marketplace is agentA in DuelManager (it created the duel),
+     *         so it proxies the call on the renter's behalf.
+     */
+    function updateRenterPnL(uint256 rentalId, int256 pnlBps) external {
+        RentalAgreement storage r = rentals[rentalId];
+        require(msg.sender == r.renter, "Not the renter");
+        duelManager.updateLivePnL(r.duelId, pnlBps);
+    }
+
+    /**
+     * @notice Renter submits encrypted final PnL for GC resolution.
+     *         Proxied through marketplace (which is agentA in DuelManager).
+     *         Requires valid coti-ethers SDK encryption for MPC.
+     */
+    function submitRenterFinalPnL(uint256 rentalId, itUint64 calldata encryptedPnL) external {
+        RentalAgreement storage r = rentals[rentalId];
+        require(msg.sender == r.renter, "Not the renter");
+        duelManager.submitFinalPnL(r.duelId, encryptedPnL);
+    }
+
     // ─── Settlement ───────────────────────────────────────────────────────────
 
     /**
@@ -183,14 +208,16 @@ contract AgentMarketplace {
 
         r.settled = true;
 
-        // Renter created the duel (agentA). Owner's agent joined as agentB.
+        // agentA = this contract (marketplace created the duel).
+        // agentB = owner's agent (joined after rental).
+        // agentWon means the owner's agent (agentB) won.
         bool agentWon = (winner != address(0)) && (winner != agentA);
 
         uint256 agentId = registry.agentOf(r.agentOwner);
         if (agentId > 0) {
-            (int256 pnlA, int256 pnlB,,) = duelManager.getLivePnL(r.duelId);
-            int256 agentPnL = (agentA == r.renter) ? pnlB : pnlA;
-            registry.recordFight(agentId, agentWon, false, agentPnL, agentWon ? r.stake * 2 : 0);
+            (, int256 pnlB,,) = duelManager.getLivePnL(r.duelId);
+            // Owner's agent is always agentB — use pnlB
+            registry.recordFight(agentId, agentWon, false, pnlB, agentWon ? r.stake * 2 : 0);
         }
 
         emit RentalSettled(rentalId, agentWon);
