@@ -1,6 +1,6 @@
 /**
  * Deploy the full Leash marketplace stack:
- *   1. MockUSDC (testnet) or point to p.USDC.e (mainnet: 0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C)
+ *   1. PrivateTestUSDC (testnet) or point to p.USDC.e (mainnet: 0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C)
  *   2. AgentRegistry (agent NFT + stats)
  *   3. AgentMarketplace (rental + cUSDC payment)
  *   4. Authorise marketplace on registry
@@ -51,7 +51,7 @@ async function main() {
   // 1. cUSDC (testnet: deploy mock; mainnet: use existing)
   let cUSDCAddress: string;
   if (IS_TESTNET) {
-    const { address } = await deploy(wallet, "MockUSDC", []);
+    const { address } = await deploy(wallet, "PrivateTestUSDC", []);
     cUSDCAddress = address;
   } else {
     cUSDCAddress = MAINNET_PUSDC;
@@ -88,12 +88,12 @@ async function main() {
     console.log("\nMinting 10,000 tUSDC for deployer...");
     const mockAbi = JSON.parse(
       fs.readFileSync(
-        path.join(__dirname, "../artifacts/contracts/MockUSDC.sol/MockUSDC.json"),
+        path.join(__dirname, "../artifacts/contracts/PrivateTestUSDC.sol/PrivateTestUSDC.json"),
         "utf8"
       )
     ).abi;
     const mockUSDC = new ethers.Contract(cUSDCAddress, mockAbi, wallet);
-    const mintTx = await mockUSDC.mint(wallet.address, 10_000_000_000n, GAS); // 10,000 tUSDC (6 dec)
+    const mintTx = await mockUSDC["mint(address,uint256)"](wallet.address, 10_000_000_000n, GAS); // 10,000 ptUSDC (6 dec)
     await mintTx.wait();
     console.log("✅ 10,000 tUSDC minted");
   }
