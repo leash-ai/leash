@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { CreateDuelModal } from "@/components/CreateDuelModal";
 import { LiveDuelList } from "@/components/LiveDuelList";
+import { WalletButton } from "@/components/WalletButton";
 import { useStats } from "@/hooks/useStats";
 
 export default function Home() {
@@ -30,6 +31,7 @@ export default function Home() {
           >
             + New Duel
           </button>
+          <WalletButton />
         </nav>
       </header>
 

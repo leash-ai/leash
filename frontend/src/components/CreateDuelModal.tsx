@@ -28,6 +28,31 @@ export function CreateDuelModal({ onClose }: Props) {
         return;
       }
 
+      // Ensure COTI testnet
+      const COTI_CHAIN_ID = "0x6C0B20";
+      const currentChain = await window.ethereum.request({ method: "eth_chainId" });
+      if (currentChain !== COTI_CHAIN_ID) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: COTI_CHAIN_ID }],
+          });
+        } catch (switchErr: any) {
+          if (switchErr.code === 4902) {
+            await window.ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [{
+                chainId: COTI_CHAIN_ID,
+                chainName: "COTI Testnet",
+                nativeCurrency: { name: "COTI", symbol: "COTI", decimals: 18 },
+                rpcUrls: ["https://testnet.coti.io/rpc"],
+                blockExplorerUrls: ["https://explorer-devnet.coti.io"],
+              }],
+            });
+          } else throw switchErr;
+        }
+      }
+
       const { ethers } = await import("ethers");
       const provider = new ethers.BrowserProvider(window.ethereum);
       await provider.send("eth_requestAccounts", []);
