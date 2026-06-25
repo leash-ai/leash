@@ -193,6 +193,9 @@ contract AgentMarketplace {
      * @notice Settle a rental after the duel resolves. Anyone can call.
      *         Updates AgentRegistry stats for the rented agent.
      */
+    // Accept COTI prize from DuelManager when marketplace (agentA) wins.
+    receive() external payable {}
+
     function settleRental(uint256 rentalId) external {
         RentalAgreement storage r = rentals[rentalId];
         require(!r.settled, "Already settled");
@@ -215,6 +218,16 @@ contract AgentMarketplace {
 
         if (r.agentId > 0) {
             registry.recordFight(r.agentId, agentWon, false, 0, agentWon ? r.stake * 2 : 0);
+        }
+
+        // When agentA (marketplace) wins, forward the prize to the renter.
+        // DuelManager already paid the resolver bonus and protocol fee; marketplace
+        // receives exactly: totalStake * (10000 - FEE_BPS) / 10000.
+        if (!agentWon && winner == agentA) {
+            uint256 prize = r.stake * 2 * (10000 - duelManager.FEE_BPS()) / 10000;
+            if (prize > 0 && address(this).balance >= prize) {
+                payable(r.renter).transfer(prize);
+            }
         }
 
         emit RentalSettled(rentalId, agentWon);
