@@ -4,12 +4,11 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 
 const DUEL_MANAGER_ABI = [
-  "function getDuel(uint256 duelId) view returns (address, address, uint256, uint256, uint256, uint8, address, bool, bool)",
-  "function getLivePnL(uint256 duelId) view returns (int256, int256, uint256, uint256)",
-  "function getPnLHistory(uint256 duelId) view returns (int256[], int256[])",
+  "function getDuel(uint256 duelId) view returns (address agentA, address agentB, uint256 stake, uint256 startTime, uint256 endTime, uint8 state, address winner, bool agentASubmitted, bool agentBSubmitted, uint256 createdAt)",
+  "function getLivePnL(uint256 duelId) view returns (int256 pnlA, int256 pnlB, uint256 updatedA, uint256 updatedB)",
 ];
 
-interface DuelData {
+export interface DuelData {
   agentA: string;
   agentB: string;
   stake: bigint;
@@ -26,59 +25,40 @@ interface LivePnL {
   pnlB: number;
 }
 
-interface PnLHistory {
-  historyA: number[];
-  historyB: number[];
-}
-
 export function useDuel(duelId: number) {
   const [duel, setDuel] = useState<DuelData | null>(null);
   const [livePnL, setLivePnL] = useState<LivePnL>({ pnlA: 0, pnlB: 0 });
-  const [pnlHistory, setPnlHistory] = useState<PnLHistory>({ historyA: [], historyB: [] });
   const [loading, setLoading] = useState(true);
 
-  const getContract = () => {
-    const provider = new ethers.JsonRpcProvider(
-      process.env.NEXT_PUBLIC_COTI_RPC || "https://testnet.coti.io/rpc"
-    );
-    return new ethers.Contract(
-      process.env.NEXT_PUBLIC_DUEL_MANAGER_ADDRESS!,
-      DUEL_MANAGER_ABI,
-      provider
-    );
-  };
-
   const fetchData = async () => {
-    if (!process.env.NEXT_PUBLIC_DUEL_MANAGER_ADDRESS) return;
+    const dmAddr = process.env.NEXT_PUBLIC_DUEL_MANAGER_ADDRESS;
+    if (!dmAddr || !duelId) return;
     try {
-      const contract = getContract();
+      const provider = new ethers.JsonRpcProvider(
+        process.env.NEXT_PUBLIC_COTI_RPC || "https://testnet.coti.io/rpc"
+      );
+      const contract = new ethers.Contract(dmAddr, DUEL_MANAGER_ABI, provider);
 
-      const [rawDuel, rawPnL, rawHistory] = await Promise.all([
+      const [rawDuel, rawPnL] = await Promise.all([
         contract.getDuel(duelId),
-        contract.getLivePnL(duelId),
-        contract.getPnLHistory(duelId),
+        contract.getLivePnL(duelId).catch(() => [0, 0, 0, 0]),
       ]);
 
       setDuel({
-        agentA: rawDuel[0],
-        agentB: rawDuel[1],
-        stake: rawDuel[2],
-        startTime: rawDuel[3],
-        endTime: rawDuel[4],
-        state: Number(rawDuel[5]),
-        winner: rawDuel[6],
-        agentASubmitted: rawDuel[7],
-        agentBSubmitted: rawDuel[8],
+        agentA: rawDuel.agentA,
+        agentB: rawDuel.agentB,
+        stake: rawDuel.stake,
+        startTime: rawDuel.startTime,
+        endTime: rawDuel.endTime,
+        state: Number(rawDuel.state),
+        winner: rawDuel.winner,
+        agentASubmitted: rawDuel.agentASubmitted,
+        agentBSubmitted: rawDuel.agentBSubmitted,
       });
 
       setLivePnL({
         pnlA: Number(rawPnL[0]),
         pnlB: Number(rawPnL[1]),
-      });
-
-      setPnlHistory({
-        historyA: rawHistory[0].map(Number),
-        historyB: rawHistory[1].map(Number),
       });
     } catch (e) {
       console.error("Failed to fetch duel:", e);
@@ -89,9 +69,10 @@ export function useDuel(duelId: number) {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 15000); // Poll every 15s
+    const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duelId]);
 
-  return { duel, livePnL, pnlHistory, loading };
+  return { duel, livePnL, loading };
 }
