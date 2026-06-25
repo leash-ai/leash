@@ -40,7 +40,9 @@ function artifact(name: string) {
 
 const provider = new ethers.JsonRpcProvider(RPC);
 const owner  = new ethers.Wallet(SIGNING_KEY, provider);
-const renter = ethers.Wallet.createRandom().connect(provider);
+// Deterministic renter wallet derived from owner key — same address every run.
+const RENTER_KEY = ethers.keccak256(ethers.toUtf8Bytes(SIGNING_KEY + "leash-renter-v1"));
+const renter = new ethers.Wallet(RENTER_KEY, provider);
 
 let pass = 0, fail = 0;
 const results: {name: string; ok: boolean; note?: string}[] = [];
@@ -61,7 +63,7 @@ function log(tag: string, msg: string) {
 async function sleep(ms: number) { await new Promise(r => setTimeout(r, ms)); }
 
 async function send(label: string, fn: (...a: any[]) => Promise<any>, args: any[], opts: any = {}) {
-  const tx = await fn(...args, { gasLimit: 1_000_000n, ...opts });
+  const tx = await fn(...args, { gasLimit: 2_000_000n, ...opts });
   const rc = await tx.wait();
   log("TX", `${label}: ${rc?.hash?.slice(0, 14)}…`);
   return rc;
@@ -92,8 +94,8 @@ async function main() {
   // Fund renter — only if owner can afford it
   const renterBal = await provider.getBalance(renter.address);
   const ownerBal  = await provider.getBalance(owner.address);
-  const FUND_AMOUNT = ethers.parseEther("0.15");
-  if (renterBal < ethers.parseEther("0.15")) {
+  const FUND_AMOUNT = ethers.parseEther("0.30");
+  if (renterBal < ethers.parseEther("0.20")) {
     if (ownerBal > FUND_AMOUNT + ethers.parseEther("0.03")) {
       await send("FUND", owner.sendTransaction.bind(owner), [{ to: renter.address, value: FUND_AMOUNT }]);
     } else {
