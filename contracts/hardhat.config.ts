@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const config: HardhatUserConfig = {
-  defaultNetwork: "coti-testnet",
+  defaultNetwork: "hardhat",
   solidity: {
     version: "0.8.19",
     settings: {
