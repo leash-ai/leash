@@ -5,7 +5,7 @@ import "./DuelManager.sol";
 
 /**
  * @title TestDuelManager
- * @notice Relaxed constraints for E2E testing. DO NOT deploy to mainnet.
+ * @notice Relaxed duration constraints for E2E testing. DO NOT deploy to mainnet.
  */
 contract TestDuelManager is DuelManager {
 
@@ -18,33 +18,5 @@ contract TestDuelManager is DuelManager {
         duelId = ++duelCount;
         _initDuel(duelId, duration);
         emit DuelCreated(duelId, msg.sender, msg.value, duration);
-    }
-
-    /**
-     * @notice Test-only: set encrypted PnL without ciphertext validation.
-     *         Bypasses the itUint64 signature check so E2E tests can exercise
-     *         the full GC resolution path without needing coti-ethers SDK.
-     *         NOT available in production DuelManager.
-     *
-     * @param agent  Must be agentA or agentB of the duel
-     * @param rawPnl Plain uint64 PnL value (encode as pnlBps + 100_000_000)
-     */
-    function unsafeSetPnL(uint256 duelId, address agent, uint64 rawPnl) external {
-        Duel storage duel = duels[duelId];
-        require(duel.state == DuelState.Active, "Duel not active");
-        require(agent == duel.agentA || agent == duel.agentB, "Not a participant");
-
-        gtUint64 gt = MpcCore.setPublic64(rawPnl);
-
-        if (agent == duel.agentA) {
-            duel.agentAPnL       = MpcCore.offBoardCombined(gt, agent);
-            duel.agentASubmitted = true;
-        } else {
-            duel.agentBPnL       = MpcCore.offBoardCombined(gt, agent);
-            duel.agentBSubmitted = true;
-        }
-
-        lastPnLUpdate[duelId][agent] = block.timestamp;
-        emit LivePnLUpdated(duelId, agent);
     }
 }

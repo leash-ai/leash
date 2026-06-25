@@ -2,7 +2,6 @@
 pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/token/PrivateERC20/IPrivateERC20.sol";
-import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "./AgentRegistry.sol";
 import "./DuelManager.sol";
 
@@ -177,21 +176,15 @@ contract AgentMarketplace {
     // ─── Renter PnL proxy ─────────────────────────────────────────────────────
 
     /**
-     * @notice Renter submits encrypted live PnL for their side of the duel.
+     * @notice Renter submits live PnL for their side of the duel.
      *         The marketplace is agentA in DuelManager (it created the duel),
      *         so it proxies the call on the renter's behalf.
-     *
-     *         Requires coti-ethers on the client:
-     *           const encPnl = await wallet.encryptValue(pnlBps + 100_000_000n);
-     *           await marketplace.updateRenterPnL(rentalId, encPnl);
-     *
-     *         The last call before duel expiry is used in GC comparison.
-     *         No plaintext value ever reaches the chain.
+     * @param pnlBps Performance in basis points (e.g. +523 = +5.23%, -210 = -2.10%)
      */
-    function updateRenterPnL(uint256 rentalId, itUint64 calldata encPnl) external {
+    function updateRenterPnL(uint256 rentalId, int256 pnlBps) external {
         RentalAgreement storage r = rentals[rentalId];
         require(msg.sender == r.renter, "Not the renter");
-        duelManager.updateLivePnL(r.duelId, encPnl);
+        duelManager.updateLivePnL(r.duelId, pnlBps);
     }
 
     // ─── Settlement ───────────────────────────────────────────────────────────
