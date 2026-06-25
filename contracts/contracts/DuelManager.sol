@@ -66,7 +66,7 @@ contract DuelManager {
      * @notice Create a new duel. Caller is agent A. Send stake as msg.value.
      * @param duration Duration in seconds (min 1 hour, max 7 days)
      */
-    function createDuel(uint256 duration) external payable returns (uint256 duelId) {
+    function createDuel(uint256 duration) external payable virtual returns (uint256 duelId) {
         require(msg.value > 0, "Stake required");
         require(duration >= 1 hours && duration <= 7 days, "Invalid duration");
 
