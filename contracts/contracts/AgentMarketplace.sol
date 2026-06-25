@@ -177,25 +177,21 @@ contract AgentMarketplace {
     // ─── Renter PnL proxy ─────────────────────────────────────────────────────
 
     /**
-     * @notice Renter submits live PnL update for their side of the duel.
+     * @notice Renter submits encrypted live PnL for their side of the duel.
      *         The marketplace is agentA in DuelManager (it created the duel),
      *         so it proxies the call on the renter's behalf.
+     *
+     *         Requires coti-ethers on the client:
+     *           const encPnl = await wallet.encryptValue(pnlBps + 100_000_000n);
+     *           await marketplace.updateRenterPnL(rentalId, encPnl);
+     *
+     *         The last call before duel expiry is used in GC comparison.
+     *         No plaintext value ever reaches the chain.
      */
-    function updateRenterPnL(uint256 rentalId, int256 pnlBps) external {
+    function updateRenterPnL(uint256 rentalId, itUint64 calldata encPnl) external {
         RentalAgreement storage r = rentals[rentalId];
         require(msg.sender == r.renter, "Not the renter");
-        duelManager.updateLivePnL(r.duelId, pnlBps);
-    }
-
-    /**
-     * @notice Renter submits encrypted final PnL for GC resolution.
-     *         Proxied through marketplace (which is agentA in DuelManager).
-     *         Requires valid coti-ethers SDK encryption for MPC.
-     */
-    function submitRenterFinalPnL(uint256 rentalId, itUint64 calldata encryptedPnL) external {
-        RentalAgreement storage r = rentals[rentalId];
-        require(msg.sender == r.renter, "Not the renter");
-        duelManager.submitFinalPnL(r.duelId, encryptedPnL);
+        duelManager.updateLivePnL(r.duelId, encPnl);
     }
 
     // ─── Settlement ───────────────────────────────────────────────────────────
@@ -209,20 +205,17 @@ contract AgentMarketplace {
         require(!r.settled, "Already settled");
 
         (address agentA,,,,, uint8 state, address winner,,) = duelManager.getDuel(r.duelId);
-        require(state == 3, "Duel not resolved");
+        // DuelState.Resolved = 2 (Open=0, Active=1, Resolved=2)
+        require(state == 2, "Duel not resolved");
 
         r.settled = true;
 
-        // agentA = this contract (marketplace created the duel).
-        // agentB = owner's agent (joined after rental).
-        // agentWon means the owner's agent (agentB) won.
         bool agentWon = (winner != address(0)) && (winner != agentA);
 
-        // agentId stored at rental time — no registry.agentOf lookup needed
-        // (agentOf is no longer publicly exposed on AgentRegistry)
         if (r.agentId > 0) {
-            (, int256 pnlB,,) = duelManager.getLivePnL(r.duelId);
-            registry.recordFight(r.agentId, agentWon, false, pnlB, agentWon ? r.stake * 2 : 0);
+            // PnL is now private (encrypted) — pass 0 as pnlBps for registry history.
+            // The winner determination is authoritative; the exact PnL value is kept private.
+            registry.recordFight(r.agentId, agentWon, false, 0, agentWon ? r.stake * 2 : 0);
         }
 
         emit RentalSettled(rentalId, agentWon);

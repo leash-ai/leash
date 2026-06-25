@@ -40,16 +40,25 @@ const DUEL_MANAGER_ADDR= process.env.DUEL_MANAGER_ADDRESS!;
 const DEFAULT_STRATEGY = (process.env.STRATEGY || "momentum") as StrategyName;
 const UPDATE_MS        = parseInt(process.env.UPDATE_INTERVAL_MS || "30000");
 
+// itUint64 in Solidity ABI = tuple(uint256 ciphertext, bytes signature)
 const MARKETPLACE_ABI = [
   "event AgentRented(uint256 indexed rentalId, uint256 indexed duelId, address indexed renter)",
   "function rentals(uint256) view returns (uint256,uint256,uint256,address,address,uint256,uint256,uint256,bool)",
+  "function updateRenterPnL(uint256 rentalId, tuple(uint256 ciphertext, bytes signature) encPnl)",
 ];
 
 const DUEL_ABI = [
   "function joinDuel(uint256 duelId) payable",
-  "function updateLivePnL(uint256 duelId, int256 pnlBps)",
+  "function updateLivePnL(uint256 duelId, tuple(uint256 ciphertext, bytes signature) encPnl)",
   "function getDuel(uint256 duelId) view returns (address,address,uint256,uint256,uint256,uint8,address,bool,bool)",
+  "function getLivePnL(uint256 duelId) view returns (int256,int256,uint256,uint256)",
 ];
+
+// 4-byte selectors for coti-ethers wallet.encryptValue(value, contractAddr, selector).
+// itUint64 is a struct {ctUint64 ciphertext, bytes signature} — ctUint64 is uint256 in ABI.
+// So the canonical form is (uint256,bytes), not the Solidity alias.
+const SELECTOR_UPDATE_LIVE_PNL   = ethers.id("updateLivePnL(uint256,(uint256,bytes))").slice(0, 10) as `0x${string}`;
+const SELECTOR_UPDATE_RENTER_PNL = ethers.id("updateRenterPnL(uint256,(uint256,bytes))").slice(0, 10) as `0x${string}`;
 
 function log(msg: string) {
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
@@ -131,14 +140,23 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
       const { publicPnlBps } = strategy.calculatePnLBps(prices);
 
       try {
+        // Encode PnL as unsigned uint64 for GC: pnlBps + 100_000_000
+        const pnlUnsigned = BigInt(publicPnlBps + 100_000_000);
+        // Encrypt via coti-ethers — produces {ciphertext: bigint, signature: Uint8Array}
+        // For the owner's agentB (direct DuelManager call), encrypt for DuelManager
+        const encPnl = await wallet.encryptValue(pnlUnsigned, DUEL_MANAGER_ADDR, SELECTOR_UPDATE_LIVE_PNL);
+
         const nonce = await provider.getTransactionCount(wallet.address);
-        const tx = await duelContract.updateLivePnL(duelId, publicPnlBps, { gasLimit: 200_000n, nonce });
+        const tx = await duelContract.updateLivePnL(duelId, encPnl, { gasLimit: 500_000n, nonce });
         await tx.wait();
+
         const pnlPct = (publicPnlBps / 100).toFixed(2);
-        const risk = config.riskFactor !== 1.0 ? ` [risk×${config.riskFactor.toFixed(1)}]` : "";
+        const risk  = config.riskFactor !== 1.0 ? ` [risk×${config.riskFactor.toFixed(1)}]` : "";
         const focus = config.focusAssets ? ` [${config.focusAssets.join("+")}]` : "";
-        log(`📈 ${pnlPct}%${risk}${focus}`);
-      } catch {}
+        log(`🔒 ${pnlPct}% (encrypted)${risk}${focus}`);
+      } catch (e: unknown) {
+        log(`⚠️  PnL update failed: ${(e as Error).message?.slice(0, 60)}`);
+      }
     } else {
       log("⏸  Paused — skipping PnL update");
     }
