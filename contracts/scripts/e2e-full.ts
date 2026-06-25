@@ -89,20 +89,30 @@ async function main() {
   // ── SETUP ────────────────────────────────────────────────────────────────
   console.log("\n── Setup: fund + mint ──");
 
-  // Fund renter
+  // Fund renter — only if owner can afford it
   const renterBal = await provider.getBalance(renter.address);
+  const ownerBal  = await provider.getBalance(owner.address);
+  const FUND_AMOUNT = ethers.parseEther("0.05");
   if (renterBal < ethers.parseEther("0.05")) {
-    await send("FUND", owner.sendTransaction.bind(owner), [{ to: renter.address, value: ethers.parseEther("0.1") }]);
+    if (ownerBal > FUND_AMOUNT + ethers.parseEther("0.03")) {
+      await send("FUND", owner.sendTransaction.bind(owner), [{ to: renter.address, value: FUND_AMOUNT }]);
+    } else {
+      log("WARN", `Owner low on COTI (${ethers.formatEther(ownerBal)} COTI) — skipping fund`);
+    }
   }
 
-  // Mint ptUSDC to renter — explicit selector avoids overload ambiguity
+  // Mint ptUSDC to renter — skip gracefully if owner is out of gas money
   const usdcMint = new ethers.Contract(
     USDC_ADDR,
     ["function mint(address to, uint256 amount)"],
     owner
   );
-  await send("MINT", usdcMint.mint, [renter.address, 20_000_000n]);
-  log("SETUP", "20 ptUSDC minted to renter");
+  try {
+    await send("MINT", usdcMint.mint, [renter.address, 20_000_000n]);
+    log("SETUP", "20 ptUSDC minted to renter");
+  } catch (e: any) {
+    log("WARN", `MINT skipped — owner low on COTI, renter uses existing ptUSDC balance`);
+  }
 
   // ── SCENARIO A: Register 2 agents, 2 listings ────────────────────────────
   console.log("\n── Scenario A: Agent registration + listings ──");
@@ -137,13 +147,29 @@ async function main() {
   }
   check("A1: AlphaBot exists", alphaId > 0n, `agentId=${alphaId}`);
 
-  // BetaBot (fresh random renter wallet — always registers successfully)
-  try {
-    const rc = await send("REG", reg_renter.registerAgent, ["BetaBot", "ipfs://beta"]);
-    const mintLog = rc?.logs.find((l: any) => l.topics[0] === ethers.id("AgentMinted(uint256,string)"));
-    if (mintLog) betaId = BigInt(mintLog.topics[1]);
-  } catch (e: any) {
-    log("", `BetaBot reg failed: ${(e as Error).message?.slice(0, 60)}`);
+  // BetaBot (renter) — idempotent: scan ERC721 mints to renter first
+  {
+    const mintTopic = ethers.id("Transfer(address,address,uint256)");
+    const renterPad  = ethers.zeroPadValue(renter.address, 32);
+    const zeroPad   = ethers.zeroPadValue(ethers.ZeroAddress, 32);
+    const mintLogs  = await provider.getLogs({
+      address: REGISTRY_ADDR,
+      topics:  [mintTopic, zeroPad, renterPad],
+      fromBlock: 0,
+    });
+    if (mintLogs.length > 0) {
+      betaId = BigInt(mintLogs[mintLogs.length - 1].topics[3]);
+      log("SCAN", `BetaBot already registered, found agentId=${betaId}`);
+    }
+  }
+  if (!betaId || betaId === 0n) {
+    try {
+      const rc = await send("REG", reg_renter.registerAgent, ["BetaBot", "ipfs://beta"]);
+      const mintLog = rc?.logs.find((l: any) => l.topics[0] === ethers.id("AgentMinted(uint256,string)"));
+      if (mintLog) betaId = BigInt(mintLog.topics[1]);
+    } catch (e: any) {
+      log("", `BetaBot reg failed: ${(e as Error).message?.slice(0, 60)}`);
+    }
   }
   check("A2: BetaBot registered by renter", betaId > 0n, `agentId=${betaId}`);
 
