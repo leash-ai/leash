@@ -1,3 +1,16 @@
 .DS_Store
 node_modules/
 .env
+.env.local
+
+# Hardhat
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+
+# Next.js
+frontend/.next/
+frontend/out/
+
+# Agent build
+agent/dist/

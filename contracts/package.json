@@ -1,0 +1,23 @@
+{
+  "name": "leash-contracts",
+  "version": "1.0.0",
+  "description": "Leash — Private AI agent performance competition on COTI",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "deploy:testnet": "npx hardhat run scripts/deploy.ts --network coti-testnet",
+    "deploy:mainnet": "npx hardhat run scripts/deploy.ts --network coti-mainnet"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.15",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.1",
+    "@types/node": "^20.0.0"
+  },
+  "dependencies": {
+    "@coti-io/coti-contracts": "^1.0.9",
+    "@coti-io/coti-ethers": "^1.0.5",
+    "dotenv": "^16.4.5"
+  }
+}
