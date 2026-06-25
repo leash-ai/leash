@@ -421,7 +421,7 @@ async function main() {
 
     // Cannot rent delisted agent
     try {
-      await mkt_renter.rentAndDuel(alphaListingId, DUEL_DURATION, { value: STAKE, gasLimit: 500_000n });
+      await send("RENT-DELIST", mkt_renter.rentAndDuel, [alphaListingId, DUEL_DURATION], { value: STAKE });
       check("J3: Rent delisted agent blocked", false);
     } catch {
       check("J3: Rent delisted agent blocked", true);
