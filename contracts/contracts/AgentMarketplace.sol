@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@coti-io/coti-contracts/contracts/token/PrivateERC20/IPrivateERC20.sol";
 import "./AgentRegistry.sol";
 import "./DuelManager.sol";
 
@@ -10,20 +9,25 @@ import "./DuelManager.sol";
  * @title AgentMarketplace
  * @notice Rent any listed agent to fight for you.
  *
- * Rental fee paid in cUSDC (p.USDC.e on mainnet, MockUSDC on testnet).
+ * Rental fee paid in ptUSDC (PrivateERC20 — encrypted balances via MPC).
+ * On mainnet: swap cUSDC address for p.USDC.e (0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C).
  * Strategy stays on the owner's machine — renter never sees it.
  *
  * Flow:
  *   1. Owner lists agent with rentalFeeUSDC + winSplitBps
- *   2. Renter calls rentAndDuel() — approves cUSDC first, sends COTI stake as msg.value
- *   3. Owner's agent runs autonomously off-chain with its private strategy
- *   4. After duel resolves, renter calls settleRental() to update on-chain stats
- *   5. Owner claims accumulated cUSDC fees via claimUSDC()
+ *   2. Renter calls rentAndDuel() — approve(marketplace, fee) on ptUSDC first
+ *   3. Owner's rentalListener daemon auto-joins the duel off-chain
+ *   4. After duel resolves, anyone calls settleRental() to update stats
+ *   5. Owner claims accumulated ptUSDC fees via claimUSDC()
+ *
+ * Privacy model:
+ *   - Rental fee *amount* is public (listed in Listing struct, set by owner)
+ *   - ptUSDC *balances* are encrypted — no one can see total holdings
+ *   - Strategy and positions never touch the chain
  */
 contract AgentMarketplace {
-    using SafeERC20 for IERC20;
 
-    IERC20        public immutable cUSDC;
+    IPrivateERC20 public immutable cUSDC;
     AgentRegistry public immutable registry;
     DuelManager   public immutable duelManager;
     address       public immutable feeRecipient;
@@ -33,7 +37,7 @@ contract AgentMarketplace {
     struct Listing {
         uint256 agentId;
         address owner;
-        uint256 rentalFeeUSDC;  // per-duel fee in cUSDC (6 decimals)
+        uint256 rentalFeeUSDC;  // per-duel fee in ptUSDC (6 decimals) — publicly declared price
         uint256 winSplitBps;    // owner share of prize (e.g. 3000 = 30%)
         bool    available;
     }
@@ -55,15 +59,18 @@ contract AgentMarketplace {
     mapping(uint256 => Listing)         public listings;
     mapping(uint256 => RentalAgreement) public rentals;
     mapping(uint256 => uint256)         public duelToRental;
-    mapping(address => uint256)         public pendingUSDC;
+
+    // Accumulated ptUSDC claimable by agent owners and protocol
+    mapping(address => uint256) public pendingUSDC;
 
     event AgentListed(uint256 indexed listingId, uint256 indexed agentId, uint256 fee, uint256 split);
     event AgentDelisted(uint256 indexed listingId);
     event AgentRented(uint256 indexed rentalId, uint256 indexed duelId, address indexed renter);
     event RentalSettled(uint256 indexed rentalId, bool agentWon);
+    event USDCClaimed(address indexed recipient, uint256 amount);
 
     constructor(address _cUSDC, address _registry, address _duelManager, address _feeRecipient) {
-        cUSDC = IERC20(_cUSDC);
+        cUSDC = IPrivateERC20(_cUSDC);
         registry = AgentRegistry(_registry);
         duelManager = DuelManager(_duelManager);
         feeRecipient = _feeRecipient;
@@ -71,6 +78,12 @@ contract AgentMarketplace {
 
     // ─── Owner: list / manage ──────────────────────────────────────────────────
 
+    /**
+     * @notice List your agent for rent.
+     * @param agentId  Your AgentRegistry NFT ID
+     * @param rentalFeeUSDC Fee per duel in ptUSDC (6 decimals, plain amount)
+     * @param winSplitBps   Your share of the duel prize (0–9000 bps)
+     */
     function listAgent(uint256 agentId, uint256 rentalFeeUSDC, uint256 winSplitBps)
         external returns (uint256 listingId)
     {
@@ -105,8 +118,11 @@ contract AgentMarketplace {
 
     /**
      * @notice Rent an agent and create a duel.
-     *         Before calling: approve(marketplace, rentalFeeUSDC) on cUSDC.
+     *         Before calling: approve(marketplace, rentalFeeUSDC) on ptUSDC.
      *         Send the duel stake as msg.value (COTI).
+     *
+     *         The owner's rentalListener daemon will detect the AgentRented event
+     *         and auto-join the duel as agentB with the owner's private strategy.
      */
     function rentAndDuel(uint256 listingId, uint256 duration)
         external payable
@@ -117,17 +133,19 @@ contract AgentMarketplace {
         require(msg.sender != l.owner, "Cannot rent your own agent");
         require(msg.value > 0, "Stake required");
 
-        // Collect cUSDC rental fee
+        // Collect ptUSDC rental fee (plain amount — publicAmountsEnabled = true on ptUSDC)
         uint256 fee = l.rentalFeeUSDC;
         uint256 protocolCut = (fee * PROTOCOL_FEE_BPS) / 10000;
         uint256 ownerCut = fee - protocolCut;
 
-        cUSDC.safeTransferFrom(msg.sender, address(this), fee);
+        // Pull ptUSDC from renter (renter must approve first)
+        cUSDC.transferFrom(msg.sender, address(this), fee);
+
+        // Credit pending balances (claimable via claimUSDC)
         pendingUSDC[l.owner]       += ownerCut;
         pendingUSDC[feeRecipient]  += protocolCut;
 
-        // Create duel — renter's wallet is agentA on-chain
-        // Owner's agent will join as agentB (off-chain listening to rentals)
+        // Create duel — renter is agentA. Owner's agent will join as agentB.
         duelId = duelManager.createDuel{value: msg.value}(duration);
 
         rentalId = ++rentalCount;
@@ -144,6 +162,7 @@ contract AgentMarketplace {
 
         duelToRental[duelId] = rentalId;
 
+        // Increment rental count on registry (not the earned amount — claimable separately)
         registry.recordRental(l.agentId, ownerCut);
 
         emit AgentRented(rentalId, duelId, msg.sender);
@@ -151,6 +170,10 @@ contract AgentMarketplace {
 
     // ─── Settlement ───────────────────────────────────────────────────────────
 
+    /**
+     * @notice Settle a rental after the duel resolves. Anyone can call.
+     *         Updates AgentRegistry stats for the rented agent.
+     */
     function settleRental(uint256 rentalId) external {
         RentalAgreement storage r = rentals[rentalId];
         require(!r.settled, "Already settled");
@@ -160,14 +183,12 @@ contract AgentMarketplace {
 
         r.settled = true;
 
-        // The renter created the duel (agentA). Owner's agent joined as agentB.
-        // If winner == agentA → renter won. If winner == agentB → owner's agent won.
-        bool agentWon = (winner != agentA); // owner's agent is agentB
+        // Renter created the duel (agentA). Owner's agent joined as agentB.
+        bool agentWon = (winner != address(0)) && (winner != agentA);
 
         uint256 agentId = registry.agentOf(r.agentOwner);
         if (agentId > 0) {
             (int256 pnlA, int256 pnlB,,) = duelManager.getLivePnL(r.duelId);
-            // Owner's agent is agentB — take pnlB
             int256 agentPnL = (agentA == r.renter) ? pnlB : pnlA;
             registry.recordFight(agentId, agentWon, false, agentPnL, agentWon ? r.stake * 2 : 0);
         }
@@ -175,13 +196,18 @@ contract AgentMarketplace {
         emit RentalSettled(rentalId, agentWon);
     }
 
-    // ─── Claim cUSDC ──────────────────────────────────────────────────────────
+    // ─── Claim ptUSDC ─────────────────────────────────────────────────────────
 
+    /**
+     * @notice Agent owners and the protocol claim their accumulated ptUSDC rental fees.
+     *         Balances are encrypted in ptUSDC — only you know your total.
+     */
     function claimUSDC() external {
         uint256 amount = pendingUSDC[msg.sender];
         require(amount > 0, "Nothing to claim");
         pendingUSDC[msg.sender] = 0;
-        cUSDC.safeTransfer(msg.sender, amount);
+        cUSDC.transfer(msg.sender, amount);
+        emit USDCClaimed(msg.sender, amount);
     }
 
     // ─── Views ────────────────────────────────────────────────────────────────
