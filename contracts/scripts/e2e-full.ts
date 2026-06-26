@@ -199,12 +199,15 @@ async function main() {
     check("A4: BetaBot listed by renter", false, e.message?.slice(0, 60));
   }
 
-  // Approve — use explicit selector to disambiguate PrivateERC20 overloads
+  // Approve — use explicit selector to disambiguate PrivateERC20 overloads.
+  // PrivateERC20.approve(nonzero) requires current allowance == 0 (ERC20UnsafeApprove).
+  // Reset to 0 first so repeated E2E runs don't fail on stale allowance.
   const usdcApprove = new ethers.Contract(
     USDC_ADDR,
     ["function approve(address spender, uint256 amount) returns (bool)"],
     renter
   );
+  try { await send("APPROVE-RESET", usdcApprove.approve, [MKT_ADDR, 0n]); } catch { /* already 0 */ }
   await send("APPROVE", usdcApprove.approve, [MKT_ADDR, 20_000_000n]);
   check("A5: ptUSDC approved", true, "20 ptUSDC to marketplace");
 
