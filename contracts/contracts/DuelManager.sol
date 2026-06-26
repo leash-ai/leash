@@ -60,7 +60,7 @@ contract DuelManager {
 
     function createDuel(uint256 duration) external payable virtual returns (uint256 duelId) {
         require(msg.value > 0, "Stake required");
-        require(duration >= 1 hours && duration <= 7 days, "Invalid duration");
+        require(duration >= 1 minutes && duration <= 7 days, "Invalid duration");
 
         duelId = ++duelCount;
         _initDuel(duelId, duration);

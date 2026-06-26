@@ -7,15 +7,16 @@ interface Props {
 }
 
 const DURATIONS = [
+  { label: "1 min", value: 60 },
+  { label: "2 min", value: 120 },
+  { label: "5 min", value: 300 },
   { label: "1 hour", value: 3600 },
-  { label: "6 hours", value: 21600 },
   { label: "24 hours", value: 86400 },
-  { label: "7 days", value: 604800 },
 ];
 
 export function CreateDuelModal({ onClose }: Props) {
   const [stake, setStake] = useState("0.1");
-  const [duration, setDuration] = useState(86400);
+  const [duration, setDuration] = useState(120);
   const [creating, setCreating] = useState(false);
   const [duelId, setDuelId] = useState<number | null>(null);
 

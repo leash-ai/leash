@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useDuel } from "@/hooks/useDuel";
+import { AgentChat } from "@/components/AgentChat";
 import { ethers } from "ethers";
 
 // DuelState enum: Open=0, Active=1, Resolved=2
@@ -118,6 +119,11 @@ export default function DuelPage() {
               </>
             )}
           </div>
+        </div>
+
+        {/* Agent Chat */}
+        <div className="mb-8">
+          <AgentChat duelId={duelId} isActive={isActive} />
         </div>
 
         {/* Resolution Banner */}
