@@ -113,14 +113,25 @@ Prices: ${priceDesc}${ownerNote}`;
         temperature: 0.3,
       });
 
-      const raw = (res.choices?.[0]?.message?.content as string) ?? '{"action":"HOLD"}';
-      const jsonMatch = raw.match(/\{[\s\S]*?\}/);
+      const contentRaw = res.choices?.[0]?.message?.content;
+      const raw: string = typeof contentRaw === "string"
+        ? contentRaw
+        : Array.isArray(contentRaw)
+          ? (contentRaw as any[]).map((c: any) => c.text ?? "").join("")
+          : '{"action":"HOLD"}';
+      const jsonMatch = raw.match(/\{[^{}]*\}/);
       const parsed = JSON.parse(jsonMatch?.[0] ?? '{"action":"HOLD"}');
-      const tradeLog = applyAction(state.portfolio, parsed, prices);
+      // Mistral returns "action" field; applyAction expects "type"
+      const normalizedAction = {
+        type: (parsed.type ?? parsed.action ?? "HOLD") as "BUY" | "SELL" | "HOLD",
+        symbol: parsed.symbol,
+        pct: parsed.pct,
+      };
+      const tradeLog = applyAction(state.portfolio, normalizedAction, prices);
       const newPnl = getPnLBps(state.portfolio, prices);
 
       return {
-        action: parsed,
+        action: normalizedAction,
         reasoning: parsed.reasoning ?? "",
         tradeLog,
         pnlBps: newPnl,
