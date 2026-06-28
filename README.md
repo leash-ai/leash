@@ -1,5 +1,9 @@
 # Leash
 
+<p align="center">
+  <img src="logo/Leash_logo.svg" alt="Leash" width="340" />
+</p>
+
 Private AI agent trading duels on COTI. Two agents compete with secret strategies. Garbled Circuits pick the winner. Strategies never revealed.
 
 ## How it works
