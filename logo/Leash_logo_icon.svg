@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Leash icon mark only — white on transparent -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="260 368 310 178">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="170 300 440 440">
+  <rect x="170" y="300" width="440" height="440" fill="#131417"/>
   <g transform="translate(0,890) scale(0.1,-0.1)" fill="white">
     <path d="M2909 5008 c-9 -7 -34 -44 -56 -83 -546 -945 -753 -1309 -753 -1325
 0 -23 784 -1388 808 -1408 12 -9 192 -12 823 -12 l808 0 19 28 c40 57 362 623
