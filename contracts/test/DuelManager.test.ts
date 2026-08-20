@@ -6,8 +6,9 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 /**
  * DuelManager tests — runs on local Hardhat network.
- * MPC-dependent functions (submitFinalPnL, resolveDuel) require COTI testnet
- * and are excluded from unit tests. Covered by integration tests on testnet.
+ * DuelManager holds no MPC calls, so all of it is unit-testable here. Contracts
+ * that do (AgentRegistry, AgentMarketplace, Tournament/LeagueManager) need the
+ * COTI precompile and are covered by the scripts/e2e-*.ts testnet suites.
  */
 describe("DuelManager", function () {
   let duelManager: DuelManager;
@@ -198,6 +199,126 @@ describe("DuelManager", function () {
 
       await duelManager.connect(deployer).resolveDuel(1);
       expect((await duelManager.getDuel(1))[6]).to.equal(agentA.address);
+    });
+  });
+
+  // ─── resolveDuel ───────────────────────────────────────────────────────────
+
+  describe("resolveDuel", () => {
+    beforeEach(async () => {
+      await duelManager.connect(agentA).createDuel(DURATION_1H, { value: STAKE });
+      await duelManager.connect(agentB).joinDuel(1, { value: STAKE });
+    });
+
+    const TOTAL = STAKE * 2n;
+    const PRIZE = (TOTAL * 9500n) / 10000n; // 100% - FEE_BPS
+
+    it("cannot resolve before endTime", async () => {
+      await duelManager.connect(agentA).updateLivePnL(1, 100);
+      await expect(
+        duelManager.connect(deployer).resolveDuel(1)
+      ).to.be.revertedWith("Duel still running");
+    });
+
+    it("higher pnlBps wins when both agents reported", async () => {
+      await duelManager.connect(agentA).updateLivePnL(1, 900);
+      await duelManager.connect(agentB).updateLivePnL(1, 150);
+      await time.increase(DURATION_1H);
+
+      await expect(duelManager.connect(deployer).resolveDuel(1))
+        .to.emit(duelManager, "DuelResolved").withArgs(1, agentA.address, PRIZE);
+
+      const d = await duelManager.getDuel(1);
+      expect(d[5]).to.equal(2); // Resolved
+      expect(d[6]).to.equal(agentA.address);
+    });
+
+    it("agentA wins by forfeit when agentB never reported", async () => {
+      await duelManager.connect(agentA).updateLivePnL(1, -300); // losing, but reported
+      await time.increase(DURATION_1H);
+
+      await expect(duelManager.connect(deployer).resolveDuel(1))
+        .to.emit(duelManager, "DuelForfeited").withArgs(1, agentA.address, agentB.address);
+
+      expect((await duelManager.getDuel(1))[6]).to.equal(agentA.address);
+      expect((await duelManager.getAgentStats(agentA.address))[0]).to.equal(1); // win
+      expect((await duelManager.getAgentStats(agentB.address))[1]).to.equal(1); // loss
+    });
+
+    it("agentB wins by forfeit when agentA never reported", async () => {
+      await duelManager.connect(agentB).updateLivePnL(1, -300);
+      await time.increase(DURATION_1H);
+
+      await expect(duelManager.connect(deployer).resolveDuel(1))
+        .to.emit(duelManager, "DuelForfeited").withArgs(1, agentB.address, agentA.address);
+
+      expect((await duelManager.getDuel(1))[6]).to.equal(agentB.address);
+    });
+
+    it("a forfeit pays the winner the same prize as a contested win", async () => {
+      await duelManager.connect(agentA).updateLivePnL(1, 0);
+      await time.increase(DURATION_1H);
+
+      const before = await ethers.provider.getBalance(agentA.address);
+      await duelManager.connect(deployer).resolveDuel(1);
+      expect(await ethers.provider.getBalance(agentA.address) - before).to.equal(PRIZE);
+    });
+
+    it("refunds both stakes in full when neither agent reported", async () => {
+      await time.increase(DURATION_1H);
+
+      const beforeA = await ethers.provider.getBalance(agentA.address);
+      const beforeB = await ethers.provider.getBalance(agentB.address);
+      const beforeFee = await ethers.provider.getBalance(feeRecipient.address);
+
+      await expect(duelManager.connect(deployer).resolveDuel(1))
+        .to.emit(duelManager, "DuelNoContest").withArgs(1, STAKE);
+
+      expect(await ethers.provider.getBalance(agentA.address) - beforeA).to.equal(STAKE);
+      expect(await ethers.provider.getBalance(agentB.address) - beforeB).to.equal(STAKE);
+      // No contest means no protocol fee and no resolver bonus.
+      expect(await ethers.provider.getBalance(feeRecipient.address)).to.equal(beforeFee);
+      expect(await ethers.provider.getBalance(await duelManager.getAddress())).to.equal(0);
+    });
+
+    it("a no-contest records no winner and no win/loss for either agent", async () => {
+      await time.increase(DURATION_1H);
+      await duelManager.connect(deployer).resolveDuel(1);
+
+      const d = await duelManager.getDuel(1);
+      expect(d[5]).to.equal(2); // Resolved
+      expect(d[6]).to.equal(ethers.ZeroAddress);
+      expect((await duelManager.getAgentStats(agentA.address))[1]).to.equal(0);
+      expect((await duelManager.getAgentStats(agentB.address))[1]).to.equal(0);
+    });
+
+    it("leaves no stake behind in any outcome", async () => {
+      await duelManager.connect(agentA).updateLivePnL(1, 900);
+      await duelManager.connect(agentB).updateLivePnL(1, 150);
+      await time.increase(DURATION_1H);
+      await duelManager.connect(deployer).resolveDuel(1);
+      expect(await ethers.provider.getBalance(await duelManager.getAddress())).to.equal(0);
+    });
+
+    it("cannot resolve the same duel twice", async () => {
+      await time.increase(DURATION_1H);
+      await duelManager.connect(deployer).resolveDuel(1);
+      await expect(
+        duelManager.connect(deployer).resolveDuel(1)
+      ).to.be.revertedWith("Duel not active");
+    });
+
+    it("pays the resolver bonus to whoever resolves", async () => {
+      await duelManager.connect(agentA).updateLivePnL(1, 100);
+      await time.increase(DURATION_1H);
+
+      const bonus = (TOTAL * 50n) / 10000n; // RESOLVER_FEE_BPS
+      const before = await ethers.provider.getBalance(agentC.address);
+      const tx = await duelManager.connect(agentC).resolveDuel(1);
+      const receipt = await tx.wait();
+      const gas = receipt!.gasUsed * receipt!.gasPrice;
+
+      expect(await ethers.provider.getBalance(agentC.address) - before + gas).to.equal(bonus);
     });
   });
 
