@@ -14,6 +14,7 @@
  *   I. claimUSDC accumulated fees
  *   J. updateFee + delistAgent
  *   K. Non-owner management blocked (auth checks)
+ *   L. No contest — neither agent reports → both stakes refunded, no fight recorded
  */
 import { ethers } from "ethers";
 import * as fs from "fs";
@@ -29,7 +30,10 @@ const DM_ADDR        = process.env.DUEL_MANAGER_ADDRESS!;
 const MKT_ADDR       = process.env.AGENT_MARKETPLACE_ADDRESS!;
 const USDC_ADDR      = process.env.CUSDC_ADDRESS!;
 
-const DUEL_DURATION  = 30; // seconds (TestDuelManager allows 1s+)
+// Seconds (TestDuelManager allows 1s+). Submissions now close at endTime, and
+// scenario E sends five sequential PnL txs that must all confirm inside the
+// window, so this needs headroom over the sum of those confirmation times.
+const DUEL_DURATION  = 90;
 const STAKE          = ethers.parseEther("0.002");
 const RENTAL_FEE     = 1_000_000n; // 1 ptUSDC (6 dec)
 
@@ -489,6 +493,73 @@ async function main() {
     } catch {
       check("K3: Resolve non-existent duel blocked", true);
     }
+  }
+
+  // ── SCENARIO L: no contest — neither agent reports ───────────────────────
+  // Covers the resolution path added for the stake-lock fix. Before it, this
+  // duel could never be resolved: resolveDuel required both submissions and
+  // refundStuck/cancelDuel only cover Open duels, so both stakes were locked
+  // permanently. Also the only coverage of AgentMarketplace's no-contest
+  // branch, which returns the renter's refunded stake and must not record a
+  // defeat for an agent that was never beaten.
+  console.log("\n── Scenario L: no contest — neither agent reports, both refunded ──");
+  {
+    const alphaBeforeL = await reg.getProfile(alphaId);
+
+    const rc = await send("RENT-NC", mkt_renter.rentAndDuel, [alphaListingId, DUEL_DURATION], { value: STAKE });
+    const rentLog = rc?.logs.find((l: any) =>
+      l.topics[0] === ethers.id("AgentRented(uint256,uint256,address)")
+    );
+    const rentalId = BigInt(rentLog!.topics[1]);
+    const duelId   = BigInt(rentLog!.topics[2]);
+    log("NC", `rentalId=${rentalId} duelId=${duelId} — submitting no PnL from either side`);
+
+    await send("JOIN-NC", dm.joinDuel, [duelId], { value: STAKE });
+
+    // Deliberately submit nothing, then let the duel expire.
+    await sleep((DUEL_DURATION + 5) * 1000);
+
+    const mktBefore   = await provider.getBalance(MKT_ADDR);
+    const ownerBefore = await provider.getBalance(owner.address);
+
+    // Renter resolves so the owner's balance moves only by the refund.
+    // The no-contest path returns before the resolver bonus, so there is none.
+    const resolveRc = await send("RESOLVE-NC", dm_renter.resolveDuel, [duelId]);
+    check("L1: resolveDuel succeeds with no submissions", true);
+    check(
+      "L2: DuelNoContest emitted",
+      !!resolveRc?.logs.some((l: any) => l.topics[0] === ethers.id("DuelNoContest(uint256,uint256)"))
+    );
+
+    const d = await dm.getDuel(duelId);
+    check("L3: duel state = Resolved", Number(d[5]) === 2, `state=${Number(d[5])}`);
+    check("L4: no winner recorded", (d[6] as string) === ethers.ZeroAddress);
+
+    const mktAfter   = await provider.getBalance(MKT_ADDR);
+    const ownerAfter = await provider.getBalance(owner.address);
+    check("L5: agentA (marketplace) stake refunded", mktAfter - mktBefore === STAKE,
+          `+${ethers.formatEther(mktAfter - mktBefore)} COTI`);
+    check("L6: agentB (owner) stake refunded in full", ownerAfter - ownerBefore === STAKE,
+          `+${ethers.formatEther(ownerAfter - ownerBefore)} COTI`);
+
+    // Settle: marketplace must hand the refunded stake back to the renter and
+    // leave the agent's record alone.
+    const renterBefore = await provider.getBalance(renter.address);
+    await send("SETTLE-NC", mkt.settleRental, [rentalId]);
+    const renterAfter = await provider.getBalance(renter.address);
+
+    check("L7: renter refunded by settleRental", renterAfter - renterBefore === STAKE,
+          `+${ethers.formatEther(renterAfter - renterBefore)} COTI`);
+    check("L8: no stake stranded in marketplace", await provider.getBalance(MKT_ADDR) === mktBefore,
+          "balance back to pre-scenario level");
+
+    const alphaAfterL = await reg.getProfile(alphaId);
+    check("L9: no contest is not recorded as a fight",
+          Number(alphaAfterL.totalFights) === Number(alphaBeforeL.totalFights),
+          `fights ${alphaBeforeL.totalFights} → ${alphaAfterL.totalFights}`);
+    check("L10: no contest is not recorded as a defeat",
+          Number(alphaAfterL.losses) === Number(alphaBeforeL.losses),
+          `losses ${alphaBeforeL.losses} → ${alphaAfterL.losses}`);
   }
 
   // ── SUMMARY ──────────────────────────────────────────────────────────────
