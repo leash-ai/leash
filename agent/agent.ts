@@ -15,6 +15,7 @@ import { MomentumStrategy, PriceData } from "./strategies/momentum";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
 import { MarketMakerStrategy } from "./strategies/marketMaker";
 import { Strategy } from "./strategies/types";
+import { cotiWallet, submitFinalPnL } from "./coti/settlement";
 
 dotenv.config();
 
@@ -32,7 +33,7 @@ const DUEL_MANAGER_ABI = [
   "function createDuel(uint256 duration) payable returns (uint256)",
   "function joinDuel(uint256 duelId) payable",
   "function updateLivePnL(uint256 duelId, int256 pnlBps)",
-  "function submitFinalPnL(uint256 duelId, tuple(bytes ciphertext, bytes signature) encryptedPnL)",
+  "function submitFinalPnL(uint256 duelId, (uint256 ciphertext, bytes signature) encryptedPnL)",
   "function resolveDuel(uint256 duelId)",
   "function getDuel(uint256 duelId) view returns (address, address, uint256, uint256, uint256, uint8, address, bool, bool)",
   "function getLivePnL(uint256 duelId) view returns (int256, int256, uint256, uint256)",
@@ -60,39 +61,6 @@ async function fetchPrices(): Promise<PriceData> {
     console.warn("Price fetch failed, using fallback prices");
     return { BTC: 65000, ETH: 3500, SOL: 150, timestamp: Date.now() };
   }
-}
-
-// ─── COTI Encryption Helpers ───────────────────────────────────────────────────
-
-/**
- * Encrypt a uint64 value for submission to COTI's MpcCore.
- * In production this uses the COTI SDK's encryption utilities.
- * For the demo, this creates the itUint64 struct format expected by the contract.
- */
-async function encryptPnLForCOTI(
-  value: number,
-  wallet: ethers.Wallet,
-  contractAddress: string
-): Promise<{ ciphertext: Uint8Array; signature: Uint8Array }> {
-  // COTI's itUint64 requires:
-  // 1. AES-encrypt the value with the wallet's AES key
-  // 2. Sign the ciphertext with the wallet's private key
-  // This is a simplified version — full implementation uses @coti-io/coti-ethers
-
-  // For demo: we use a deterministic encryption based on the wallet
-  // In production: use MpcCore.prepareIT() from the COTI SDK
-  const valueBuffer = Buffer.alloc(8);
-  valueBuffer.writeBigUInt64BE(BigInt(value));
-
-  const msgHash = ethers.keccak256(
-    ethers.concat([valueBuffer, ethers.getBytes(contractAddress)])
-  );
-  const signature = await wallet.signMessage(ethers.getBytes(msgHash));
-
-  return {
-    ciphertext: ethers.getBytes(msgHash),
-    signature: ethers.getBytes(signature),
-  };
 }
 
 // ─── Agent Loop ────────────────────────────────────────────────────────────────
@@ -126,6 +94,8 @@ async function runDuel(duelId: number) {
   console.log(`   Duel ends: ${new Date(endTime).toISOString()}\n`);
 
   let iteration = 0;
+  // The value the contract has on record for us — what settlement must match.
+  let lastReportedPnlBps = 0;
 
   while (Date.now() < endTime) {
     iteration++;
@@ -150,6 +120,7 @@ async function runDuel(duelId: number) {
     try {
       const tx = await contract.updateLivePnL(duelId, publicPnlBps);
       await tx.wait();
+      lastReportedPnlBps = publicPnlBps;
       console.log(`   ✓ PnL reported (${tx.hash.slice(0, 10)}...)`);
     } catch (e: unknown) {
       const err = e as Error;
@@ -166,25 +137,22 @@ async function runDuel(duelId: number) {
     }
   }
 
-  // Duel ended — submit encrypted final PnL for GC comparison
-  console.log("\n⚔️  Duel ended. Submitting encrypted final PnL for Garbled Circuit resolution...");
-
-  prices = await fetchPrices();
-  const { publicPnlBps, gcEncoded } = strategy.calculatePnLBps(prices);
-
-  console.log(`   Final PnL: ${(publicPnlBps / 100).toFixed(2)}%`);
-  console.log(`   GC encoded value: ${gcEncoded} (hidden from opponent)`);
-
-  const encrypted = await encryptPnLForCOTI(gcEncoded, wallet, DUEL_MANAGER_ADDRESS);
+  // Duel over. Settle with the encrypted final score.
+  //
+  // This must be the last value reported with updateLivePnL, not a freshly
+  // recomputed one: DuelManager pins the encrypted score to the agent's own last
+  // public report in-circuit, and prices move between the two calls.
+  console.log("\n⚔️  Duel ended. Settling with encrypted final PnL...");
+  console.log(`   Final PnL: ${(lastReportedPnlBps / 100).toFixed(2)}% (matching last live report)`);
 
   try {
-    const tx = await contract.submitFinalPnL(duelId, encrypted);
-    await tx.wait();
-    console.log(`   ✓ Encrypted PnL submitted (${tx.hash.slice(0, 10)}...)`);
-    console.log("\n   Waiting for opponent to submit, then resolution will be called...");
+    const signer = await cotiWallet(PRIVATE_KEY, provider, process.env.AES_KEY);
+    const hash = await submitFinalPnL(signer, DUEL_MANAGER_ADDRESS, duelId, lastReportedPnlBps);
+    console.log(`   ✓ Encrypted score submitted (${hash.slice(0, 10)}…)`);
+    console.log("   Once both agents settle, anyone can call resolveDuel().");
   } catch (e: unknown) {
-    const err = e as Error;
-    console.error(`   ✗ Submit failed: ${err.message}`);
+    console.error(`   ✗ Settlement failed: ${(e as Error).message}`);
+    console.error("     Without it this agent forfeits when the duel resolves.");
   }
 }
 

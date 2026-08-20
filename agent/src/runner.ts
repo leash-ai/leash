@@ -4,10 +4,12 @@ dotenv.config();
 
 import { fetchPrices } from "./prices";
 import { MistralAgent, AgentState } from "./ai_agent";
+import { cotiWallet, submitFinalPnL } from "../coti/settlement";
 
 const DM_ABI = [
   "function getDuel(uint256) view returns (address agentA, address agentB, uint256 stake, uint256 startTime, uint256 endTime, uint8 state, address winner, bool agentASubmitted, bool agentBSubmitted, uint256 createdAt)",
   "function updateLivePnL(uint256 duelId, int256 pnlBps) external",
+  "function submitFinalPnL(uint256 duelId, (uint256 ciphertext, bytes signature) encryptedPnL)",
 ];
 
 export type FeedEvent = {
@@ -61,11 +63,44 @@ export async function runDuel(
     message: `Agent started — wallet ${wallet.address.slice(0, 8)}… | duel ends in ${Math.round(remaining / 1000)}s | tick every ${tickMs / 1000}s`,
   });
 
+  // What the contract has on record for us. Settlement is pinned to this value
+  // in-circuit, so it has to be the number that actually landed on-chain — not a
+  // recomputed one, since prices move between the last tick and the duel ending.
+  let lastReportedPnlBps: number | null = null;
+  let settled = false;
+
+  /**
+   * Submit the encrypted final score. Runs once, after endTime, inside
+   * DuelManager's FINAL_WINDOW. An agent that skips this forfeits at resolution.
+   */
+  const settle = async () => {
+    if (settled) return;
+    settled = true;
+
+    if (lastReportedPnlBps === null) {
+      emit("info", { message: "Nothing was reported on-chain — no score to settle" });
+      return;
+    }
+
+    try {
+      const signer = await cotiWallet(key, provider, process.env.AES_KEY);
+      const hash = await submitFinalPnL(
+        signer, process.env.DUEL_MANAGER_ADDRESS!, duelId, lastReportedPnlBps
+      );
+      emit("info", {
+        message: `Settled with encrypted score ${(lastReportedPnlBps / 100).toFixed(2)}% — ${hash.slice(0, 10)}…`,
+      });
+    } catch (e: any) {
+      emit("error", { message: `Settlement failed, this agent forfeits: ${e.message?.slice(0, 90)}` });
+    }
+  };
+
   const loop = async () => {
     try {
       // Re-check duel
       const d = await dm.getDuel(duelId).catch(() => null);
       if (!d || Number(d.state) !== 1 || Date.now() >= Number(d.endTime) * 1000) {
+        await settle();
         emit("end", { message: "Duel ended" });
         return;
       }
@@ -90,6 +125,7 @@ export async function runDuel(
           gasLimit: 200_000n,
         });
         await tx.wait();
+        lastReportedPnlBps = decision.pnlBps;
         emit("pnl", { pnlBps: decision.pnlBps, txHash: tx.hash });
       } catch (e: any) {
         emit("error", { message: `PnL submit failed: ${e.message?.slice(0, 80)}` });
@@ -105,6 +141,7 @@ export async function runDuel(
       const delay = Math.min(tickMs, timeLeft - 3_000);
       setTimeout(loop, Math.max(5_000, delay));
     } else {
+      await settle();
       emit("end", { message: "Duel complete" });
     }
   };

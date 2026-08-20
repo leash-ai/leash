@@ -26,6 +26,8 @@ import { ethers } from "ethers";
 import dotenv from "dotenv";
 import axios from "axios";
 import { MomentumStrategy, PriceData } from "./strategies/momentum";
+import { Strategy } from "./strategies/types";
+import { cotiWallet, submitFinalPnL } from "./coti/settlement";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
 import { MarketMakerStrategy } from "./strategies/marketMaker";
 import { CommandChannel, AgentConfig, StrategyName } from "./messaging/commandChannel";
@@ -50,6 +52,7 @@ const MARKETPLACE_ABI = [
 const DUEL_ABI = [
   "function joinDuel(uint256 duelId) payable",
   "function updateLivePnL(uint256 duelId, int256 pnlBps)",
+  "function submitFinalPnL(uint256 duelId, (uint256 ciphertext, bytes signature) encryptedPnL)",
   "function getDuel(uint256 duelId) view returns (address,address,uint256,uint256,uint256,uint8,address,bool,bool)",
   "function getLivePnL(uint256 duelId) view returns (int256,int256,uint256,uint256)",
 ];
@@ -70,7 +73,7 @@ async function fetchPrices(): Promise<PriceData> {
   }
 }
 
-function makeStrategy(name: StrategyName) {
+function makeStrategy(name: StrategyName): Strategy {
   if (name === "meanReversion") return new MeanReversionStrategy();
   if (name === "marketMaker")   return new MarketMakerStrategy();
   return new MomentumStrategy(1000);
@@ -115,6 +118,9 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
   let prices = await fetchPrices();
   strategy.addPriceData(prices);
 
+  // What the contract has on record for us — settlement is pinned to it.
+  let lastReportedPnlBps: number | null = null;
+
   while (Date.now() < endTime) {
     prices = await fetchPrices();
     config = channel.getConfig(); // always get latest config
@@ -126,7 +132,6 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
       // Apply focusAssets filter
       if (config.focusAssets && !config.focusAssets.includes(t.asset)) continue;
       const price = prices[t.asset as keyof PriceData] as number;
-      // @ts-ignore — side type varies by strategy (long/short vs buy/sell)
       strategy.executeTrade(t.asset, t.side, t.sizePercent * config.riskFactor, price);
     }
 
@@ -137,6 +142,7 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
         const nonce = await provider.getTransactionCount(wallet.address);
         const tx = await duelContract.updateLivePnL(duelId, publicPnlBps, { gasLimit: 200_000n, nonce });
         await tx.wait();
+        lastReportedPnlBps = publicPnlBps;
 
         const pnlPct = (publicPnlBps / 100).toFixed(2);
         const risk  = config.riskFactor !== 1.0 ? ` [risk×${config.riskFactor.toFixed(1)}]` : "";
@@ -156,8 +162,24 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
 
   log(`⏱  Duel #${duelId} ended`);
   const finalConfig = channel.getConfig();
-  const { publicPnlBps } = strategy.calculatePnLBps(await fetchPrices());
-  log(`   Final PnL: ${(publicPnlBps / 100).toFixed(2)}% | strategy: ${finalConfig.strategy}`);
+  log(`   Strategy: ${finalConfig.strategy} (never left this machine)`);
+
+  // Settle with the encrypted final score. Must be the last value that landed
+  // on-chain: DuelManager pins the ciphertext to it, and an agent that does not
+  // settle inside FINAL_WINDOW forfeits the duel.
+  if (lastReportedPnlBps === null) {
+    log("⚠️  Nothing was reported on-chain — no score to settle, duel will refund");
+    return;
+  }
+
+  log(`   Settling encrypted ${(lastReportedPnlBps / 100).toFixed(2)}%…`);
+  try {
+    const signer = await cotiWallet(PRIVATE_KEY, wallet.provider as ethers.JsonRpcProvider, AES_KEY);
+    const hash = await submitFinalPnL(signer, DUEL_MANAGER_ADDR, duelId, lastReportedPnlBps);
+    log(`✅ Settled — ${hash.slice(0, 12)}…`);
+  } catch (e: unknown) {
+    log(`❌ Settlement failed, this agent forfeits: ${(e as Error).message?.slice(0, 70)}`);
+  }
 }
 
 async function main() {
