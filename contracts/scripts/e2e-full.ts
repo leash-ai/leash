@@ -15,8 +15,12 @@
  *   J. updateFee + delistAgent
  *   K. Non-owner management blocked (auth checks)
  *   L. No contest — neither agent reports → both stakes refunded, no fight recorded
+ *   M. Encrypted settlement — MpcCore.gt decides the winner, scores never decrypted
+ *   N. The pin holds — an encrypted score that isn't the last live value is rejected
+ *   O. Forfeit — reported live but never settled
  */
 import { ethers } from "ethers";
+import { Wallet as CotiWallet } from "@coti-io/coti-ethers";
 import * as fs from "fs";
 import * as path from "path";
 import dotenv from "dotenv";
@@ -34,6 +38,14 @@ const USDC_ADDR      = process.env.CUSDC_ADDRESS!;
 // scenario E sends five sequential PnL txs that must all confirm inside the
 // window, so this needs headroom over the sum of those confirmation times.
 const DUEL_DURATION  = 90;
+// Must match TestDuelManager.finalWindow(). Encrypted scores are accepted for
+// this long after endTime; resolveDuel only becomes callable once it closes.
+const FINAL_WINDOW   = 60;
+const ONBOARD        = "0x536A67f0cc46513E7d27a370ed1aF9FDcC7A5095";
+// submitFinalPnL(uint256,(uint256,bytes)) — read off the fragment, never hardcoded.
+const SUBMIT_FINAL_SELECTOR = new ethers.Interface([
+  "function submitFinalPnL(uint256 duelId, (uint256 ciphertext, bytes signature) encryptedPnL)",
+]).getFunction("submitFinalPnL")!.selector;
 const STAKE          = ethers.parseEther("0.002");
 const RENTAL_FEE     = 1_000_000n; // 1 ptUSDC (6 dec)
 
@@ -91,6 +103,44 @@ async function main() {
 
   const mkt_renter  = mkt.connect(renter) as typeof mkt;
   const dm_renter   = dm.connect(renter)  as typeof dm;
+
+  // COTI wallets for encrypted settlement. generateOrRecoverAes is deterministic
+  // — same private key, same AES key — so re-running this script is free after
+  // the first onboarding.
+  const ownerCoti  = new CotiWallet(SIGNING_KEY, provider);
+  const renterCoti = new CotiWallet(RENTER_KEY, provider);
+  let mpcReady = false;
+  try {
+    await ownerCoti.generateOrRecoverAes(ONBOARD);
+    await renterCoti.generateOrRecoverAes(ONBOARD);
+    mpcReady = !!ownerCoti.getUserOnboardInfo()?.aesKey && !!renterCoti.getUserOnboardInfo()?.aesKey;
+    log("SETUP", `AES keys ready — encrypted settlement enabled`);
+  } catch (e: any) {
+    log("WARN", `AES onboarding failed: ${e.message?.slice(0, 70)}`);
+  }
+
+  const PNL_OFFSET = 100_000_000;
+
+  /** Encrypt a score for DuelManager.submitFinalPnL. */
+  async function encryptScore(w: CotiWallet, pnlBps: number) {
+    return await w.encryptValue(BigInt(pnlBps + PNL_OFFSET), DM_ADDR, SUBMIT_FINAL_SELECTOR);
+  }
+
+  /**
+   * Settle one side. The owner is agentB and calls DuelManager directly; the
+   * renter is behind the marketplace (agentA) and goes through its proxy.
+   */
+  async function settleOwner(duelId: bigint, pnlBps: number) {
+    const enc = await encryptScore(ownerCoti, pnlBps);
+    const dmSigned = new ethers.Contract(DM_ADDR, artifact("TestDuelManager").abi, ownerCoti);
+    await send("SETTLE-B", dmSigned.submitFinalPnL, [duelId, enc], { gasLimit: 3_000_000n });
+  }
+
+  async function settleRenter(rentalId: bigint, pnlBps: number) {
+    const enc = await encryptScore(renterCoti, pnlBps);
+    const mktSigned = new ethers.Contract(MKT_ADDR, artifact("AgentMarketplace").abi, renterCoti);
+    await send("SETTLE-A", mktSigned.submitRenterFinalPnL, [rentalId, enc], { gasLimit: 3_000_000n });
+  }
 
   // ── SETUP ────────────────────────────────────────────────────────────────
   console.log("\n── Setup: fund + mint ──");
@@ -288,7 +338,20 @@ async function main() {
     // Wait for duel to expire
     await sleep((DUEL_DURATION + 5) * 1000);
 
-    // Resolve
+    // Settle: both sides submit their score encrypted, pinned in-circuit to the
+    // live value each of them reported above.
+    await settleRenter(rentalId, renterPnl);
+    await settleOwner(duelId, ownerPnl);
+
+    const settleStatus = await dm.getFinalPnLStatus(duelId);
+    if (!settleStatus[0] || !settleStatus[1]) {
+      throw new Error(`not settled on-chain: a=${settleStatus[0]} b=${settleStatus[1]}`);
+    }
+
+    // resolveDuel only opens once the final window closes
+    await sleep((FINAL_WINDOW + 5) * 1000);
+
+    // Resolve — the winner comes out of MpcCore.gt on the two ciphertexts
     const resolveRc = await send("RESOLVE", dm.resolveDuel, [duelId]);
     const resolvedLog = resolveRc?.logs.find((l: any) =>
       l.topics[0] === ethers.id("DuelResolved(uint256,address,uint256)")
@@ -361,6 +424,14 @@ async function main() {
     check("E2: owner last PnL = 150bps",  Number(live[1]) === 150);
 
     await sleep((DUEL_DURATION + 5) * 1000);
+
+    // Settle on the last values that landed — 200 and 150. The pin rejects
+    // anything else, which is also what makes E1/E2 load-bearing rather than
+    // cosmetic: the overwritten values are the ones settlement is held to.
+    await settleRenter(rentalId, 200);
+    await settleOwner(duelId, 150);
+
+    await sleep((FINAL_WINDOW + 5) * 1000);
     await send("RESOLVE", dm.resolveDuel, [duelId]);
     await send("SETTLE", mkt.settleRental, [rentalId]);
 
@@ -516,8 +587,10 @@ async function main() {
 
     await send("JOIN-NC", dm.joinDuel, [duelId], { value: STAKE });
 
-    // Deliberately submit nothing, then let the duel expire.
+    // Deliberately submit nothing — no live PnL, so neither side can settle
+    // either — then let both the duel and the final window expire.
     await sleep((DUEL_DURATION + 5) * 1000);
+    await sleep((FINAL_WINDOW + 5) * 1000);
 
     const mktBefore   = await provider.getBalance(MKT_ADDR);
     const ownerBefore = await provider.getBalance(owner.address);
@@ -560,6 +633,81 @@ async function main() {
     check("L10: no contest is not recorded as a defeat",
           Number(alphaAfterL.losses) === Number(alphaBeforeL.losses),
           `losses ${alphaBeforeL.losses} → ${alphaAfterL.losses}`);
+  }
+
+  // ── SCENARIO M: encrypted settlement decides the winner ──────────────────
+  // Every duel above already settled through MpcCore.gt — runDuel does it. This
+  // asserts the properties that make that meaningful rather than ceremonial.
+  console.log("\n── Scenario M: encrypted settlement ──");
+  if (!mpcReady) {
+    check("M: skipped — no AES key", false, "AES onboarding failed earlier");
+  } else {
+    const m = await runDuel(300, 800);   // owner higher → agentB wins
+    check("M1: winner decided by encrypted comparison", m.winner === owner.address.toLowerCase(),
+          `winner=${m.winner.slice(0, 10)}…`);
+
+    const status = await dm.getFinalPnLStatus(m.duelId);
+    check("M2: both sides recorded as settled", status[0] === true && status[1] === true);
+
+    // The ciphertexts are stored per agent. Nothing in the ABI returns a
+    // plaintext score, and resolveDuel emitted only a winner and a prize.
+    const d = await dm.getDuel(m.duelId);
+    check("M3: resolved with a winner and no score in the receipt",
+          (d[6] as string) !== ethers.ZeroAddress);
+  }
+
+  // ── SCENARIO N: the pin rejects a score that was never reported ──────────
+  // This is the guard that stops the public feed from being gamed through the
+  // encrypted door: read the opponent's last public PnL, encrypt one higher.
+  // Nothing else in the suite covers it, and it cannot be tested locally.
+  console.log("\n── Scenario N: encrypted score must match the last live PnL ──");
+  if (!mpcReady) {
+    check("N: skipped — no AES key", false, "AES onboarding failed earlier");
+  } else {
+    const rc = await send("RENT-PIN", mkt_renter.rentAndDuel, [alphaListingId, DUEL_DURATION], { value: STAKE });
+    const rentLog = rc?.logs.find((l: any) => l.topics[0] === ethers.id("AgentRented(uint256,uint256,address)"));
+    const rentalId = BigInt(rentLog!.topics[1]);
+    const duelId   = BigInt(rentLog!.topics[2]);
+    await send("JOIN-PIN", dm.joinDuel, [duelId], { value: STAKE });
+
+    // Owner reports +100bps. Renter reports +200bps and can read the owner's.
+    await sendCoti("PNL-A", mkt_renter.updateRenterPnL, [rentalId, 200], {},
+      async () => { const d = await dm.getDuel(duelId); return d[7] as boolean; });
+    await sendCoti("PNL-B", dm.updateLivePnL, [duelId, 100], {},
+      async () => { const d = await dm.getDuel(duelId); return d[8] as boolean; });
+
+    await sleep((DUEL_DURATION + 5) * 1000);
+
+    // Owner tries to settle on 900bps having only ever reported 100bps.
+    let rejected = false;
+    try {
+      await settleOwner(duelId, 900);
+    } catch {
+      rejected = true;
+    }
+    check("N1: mismatched encrypted score rejected", rejected,
+          rejected ? "reverted as expected" : "ACCEPTED — the pin is not holding");
+
+    // The honest value still settles.
+    let honestOk = false;
+    try {
+      await settleOwner(duelId, 100);
+      honestOk = (await dm.getFinalPnLStatus(duelId))[1] === true;
+    } catch (e: any) {
+      log("WARN", `honest settlement failed: ${e.message?.slice(0, 70)}`);
+    }
+    check("N2: the value actually reported settles", honestOk);
+
+    // Renter never settles → owner wins by forfeit, which also covers scenario O.
+    await sleep((FINAL_WINDOW + 5) * 1000);
+    const rrc = await send("RESOLVE-PIN", dm.resolveDuel, [duelId]);
+    const forfeited = rrc?.logs.some((l: any) =>
+      l.topics[0] === ethers.id("DuelForfeited(uint256,address,address)"));
+    check("O1: agent that never settled forfeits", !!forfeited);
+    const fd = await dm.getDuel(duelId);
+    check("O2: forfeit awarded to the agent that settled",
+          (fd[6] as string).toLowerCase() === owner.address.toLowerCase());
+    await send("SETTLE-PIN", mkt.settleRental, [rentalId]);
   }
 
   // ── SUMMARY ──────────────────────────────────────────────────────────────

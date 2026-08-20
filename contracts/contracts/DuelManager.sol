@@ -24,8 +24,8 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
  *
  * Timeline:
  *   join → endTime          live PnL accepted, public, last value wins
- *   endTime → +FINAL_WINDOW  encrypted final PnL accepted, pinned to last live
- *   after FINAL_WINDOW       resolveDuel(), anyone, earns a resolver bonus
+ *   endTime → +finalWindow() encrypted final PnL accepted, pinned to last live
+ *   after that window      resolveDuel(), anyone, earns a resolver bonus
  *
  * Outcome depends on who submitted an encrypted final:
  *   both     → garbled-circuit comparison, higher score wins
@@ -78,8 +78,6 @@ contract DuelManager {
     uint256 public constant RESOLVER_FEE_BPS = 50;   // 0.5% to whoever calls resolveDuel
     uint256 public constant STUCK_TIMEOUT    = 24 hours;
 
-    // Window after endTime in which encrypted final scores are accepted.
-    uint256 public constant FINAL_WINDOW = 1 hours;
 
     // Garbled ints are unsigned, so PnL is offset before encryption. Matches
     // calculatePnLBps() in agent/strategies/*.ts.
@@ -104,6 +102,16 @@ contract DuelManager {
 
     constructor(address _feeRecipient) {
         feeRecipient = _feeRecipient;
+    }
+
+    /**
+     * @notice How long after endTime encrypted final scores are accepted.
+     * @dev    A function rather than a constant so TestDuelManager can shorten it
+     *         — an on-chain e2e cannot wait an hour per duel. Everything that
+     *         needs the window reads it here, so there is one source of truth.
+     */
+    function finalWindow() public view virtual returns (uint256) {
+        return 1 hours;
     }
 
     function createDuel(uint256 duration) external payable virtual returns (uint256 duelId) {
@@ -176,7 +184,7 @@ contract DuelManager {
         Duel storage duel = duels[duelId];
         require(duel.state == DuelState.Active, "Duel not active");
         require(block.timestamp >= duel.endTime, "Duel still running");
-        require(block.timestamp < duel.endTime + FINAL_WINDOW, "Final window closed");
+        require(block.timestamp < duel.endTime + finalWindow(), "Final window closed");
 
         bool isA = msg.sender == duel.agentA;
         require(isA || msg.sender == duel.agentB, "Not a participant");
@@ -212,7 +220,7 @@ contract DuelManager {
      *         total stake as a bonus.
      *
      *         Settlement runs on the encrypted final scores, so it waits for
-     *         FINAL_WINDOW rather than for endTime.
+     *         finalWindow() rather than for endTime.
      *
      *         An agent that never settled did not finish the duel, so it
      *         forfeits. If neither settled there is nothing to compare and both
@@ -223,7 +231,7 @@ contract DuelManager {
     function resolveDuel(uint256 duelId) external {
         Duel storage duel = duels[duelId];
         require(duel.state == DuelState.Active, "Duel not active");
-        require(block.timestamp >= duel.endTime + FINAL_WINDOW, "Final window open");
+        require(block.timestamp >= duel.endTime + finalWindow(), "Final window open");
 
         duel.state = DuelState.Resolved;
 
@@ -312,7 +320,7 @@ contract DuelManager {
         uint256 windowClosesAt
     ) {
         Duel storage d = duels[duelId];
-        return (d.finalASubmitted, d.finalBSubmitted, d.endTime + FINAL_WINDOW);
+        return (d.finalASubmitted, d.finalBSubmitted, d.endTime + finalWindow());
     }
 
     function getLivePnL(uint256 duelId) external view returns (

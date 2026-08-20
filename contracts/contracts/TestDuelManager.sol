@@ -26,6 +26,14 @@ contract TestDuelManager is DuelManager {
 
     constructor(address _feeRecipient) DuelManager(_feeRecipient) {}
 
+    /**
+     * @dev 60s instead of an hour. Long enough for two settlement transactions to
+     *      confirm on testnet, short enough that scripts/e2e-full.ts finishes.
+     */
+    function finalWindow() public view override returns (uint256) {
+        return 60;
+    }
+
     function createDuel(uint256 duration) external payable override returns (uint256 duelId) {
         require(msg.value > 0, "Stake required");
         require(duration >= 1 && duration <= 30 days, "Invalid duration");
@@ -44,7 +52,7 @@ contract TestDuelManager is DuelManager {
         Duel storage duel = duels[duelId];
         require(duel.state == DuelState.Active, "Duel not active");
         require(block.timestamp >= duel.endTime, "Duel still running");
-        require(block.timestamp < duel.endTime + FINAL_WINDOW, "Final window closed");
+        require(block.timestamp < duel.endTime + finalWindow(), "Final window closed");
 
         bool isA = msg.sender == duel.agentA;
         require(isA || msg.sender == duel.agentB, "Not a participant");

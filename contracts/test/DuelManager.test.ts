@@ -224,7 +224,7 @@ describe("DuelManager", function () {
 
     const TOTAL = STAKE * 2n;
     const PRIZE = (TOTAL * 9500n) / 10000n; // 100% - FEE_BPS
-    const FINAL_WINDOW = 3600;
+    const FINAL_WINDOW = 60;   // TestDuelManager.finalWindow()
 
     beforeEach(async () => {
       const Factory = await ethers.getContractFactory("TestDuelManager");
