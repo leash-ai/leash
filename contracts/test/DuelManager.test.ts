@@ -59,9 +59,9 @@ describe("DuelManager", function () {
       ).to.be.revertedWith("Stake required");
     });
 
-    it("reverts if duration < 1h", async () => {
+    it("reverts if duration < 1 minute", async () => {
       await expect(
-        duelManager.connect(agentA).createDuel(3599, { value: STAKE })
+        duelManager.connect(agentA).createDuel(59, { value: STAKE })
       ).to.be.revertedWith("Invalid duration");
     });
 
@@ -151,20 +151,18 @@ describe("DuelManager", function () {
       expect(pnl[1]).to.equal(-210);
     });
 
-    it("PnL history accumulates", async () => {
+    it("later submissions overwrite earlier ones", async () => {
       await duelManager.connect(agentA).updateLivePnL(1, 100);
       await duelManager.connect(agentA).updateLivePnL(1, 250);
 
-      const history = await duelManager.getPnLHistory(1);
-      expect(history[0].length).to.equal(2);
-      expect(history[0][0]).to.equal(100);
-      expect(history[0][1]).to.equal(250);
+      const pnl = await duelManager.getLivePnL(1);
+      expect(pnl[0]).to.equal(250);
     });
 
-    it("emits PnLUpdated", async () => {
+    it("emits LivePnLUpdated", async () => {
       await expect(
         duelManager.connect(agentA).updateLivePnL(1, 777)
-      ).to.emit(duelManager, "PnLUpdated").withArgs(1, agentA.address, 777);
+      ).to.emit(duelManager, "LivePnLUpdated").withArgs(1, agentA.address, 777);
     });
 
     it("non-participant cannot update PnL", async () => {
