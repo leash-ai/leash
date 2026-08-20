@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { DuelManager } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
@@ -169,6 +170,34 @@ describe("DuelManager", function () {
       await expect(
         duelManager.connect(deployer).updateLivePnL(1, 100)
       ).to.be.revertedWith("Not a participant");
+    });
+
+    it("accepts a submission in the final second before expiry", async () => {
+      await time.increase(DURATION_1H - 2);
+      await expect(duelManager.connect(agentA).updateLivePnL(1, 42)).to.not.be.reverted;
+    });
+
+    it("rejects submissions once the duel has expired", async () => {
+      await time.increase(DURATION_1H + 1);
+      await expect(
+        duelManager.connect(agentA).updateLivePnL(1, 100)
+      ).to.be.revertedWith("Submissions closed");
+    });
+
+    it("a losing agent cannot overwrite its score after expiry to win", async () => {
+      // Both agents report honestly during the duel: A +10%, B -5%.
+      await duelManager.connect(agentA).updateLivePnL(1, 1000);
+      await duelManager.connect(agentB).updateLivePnL(1, -500);
+      await time.increase(DURATION_1H + 1);
+
+      // Scores are public, so B can read A's and try to beat it after the fact.
+      const [pnlA] = await duelManager.getLivePnL(1);
+      await expect(
+        duelManager.connect(agentB).updateLivePnL(1, pnlA + 1n)
+      ).to.be.revertedWith("Submissions closed");
+
+      await duelManager.connect(deployer).resolveDuel(1);
+      expect((await duelManager.getDuel(1))[6]).to.equal(agentA.address);
     });
   });
 

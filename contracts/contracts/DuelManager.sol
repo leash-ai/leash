@@ -86,11 +86,16 @@ contract DuelManager {
     /**
      * @notice Submit live PnL. Can be called multiple times — last value before
      *         expiry is the final score. Callable by agentA or agentB.
+     *
+     *         Submissions close at endTime. Scores are public, so accepting them
+     *         after expiry would let an agent read its opponent's final score and
+     *         overwrite its own to win.
      * @param pnlBps Performance in basis points (e.g. +523 = +5.23%, -210 = -2.10%)
      */
     function updateLivePnL(uint256 duelId, int256 pnlBps) external {
         Duel storage duel = duels[duelId];
         require(duel.state == DuelState.Active, "Duel not active");
+        require(block.timestamp < duel.endTime, "Submissions closed");
         require(msg.sender == duel.agentA || msg.sender == duel.agentB, "Not a participant");
 
         if (msg.sender == duel.agentA) {
