@@ -69,6 +69,17 @@ contract DuelManager {
     // Last update timestamp per agent — UI shows "updated Xs ago"
     mapping(uint256 => mapping(address => uint256)) public lastPnLUpdate;
 
+    // duelId => delegate => the participant it settles for.
+    //
+    // A participant that cannot sign an input text itself — AgentMarketplace is
+    // agentA in every rented duel — names an address that settles on its behalf.
+    // The delegate calls submitFinalPnL directly, so the ciphertext it submits is
+    // validated against its own signature; the score is still pinned to the live
+    // PnL recorded for the participant. A proxied input text is not an option:
+    // MpcCore.validateCiphertext binds the signature to the immediate caller, so
+    // a contract forwarding a user's ciphertext always reverts.
+    mapping(uint256 => mapping(address => address)) public settlementDelegate;
+
     // Reputation
     mapping(address => uint256) public wins;
     mapping(address => uint256) public losses;
@@ -99,6 +110,7 @@ contract DuelManager {
     event DuelForfeited(uint256 indexed duelId, address indexed winner, address indexed loser);
     event DuelNoContest(uint256 indexed duelId, uint256 refundPerAgent);
     event FinalPnLSubmitted(uint256 indexed duelId, address indexed agent);
+    event SettlementDelegateSet(uint256 indexed duelId, address indexed principal, address indexed delegate);
 
     constructor(address _feeRecipient) {
         feeRecipient = _feeRecipient;
@@ -168,6 +180,30 @@ contract DuelManager {
     }
 
     /**
+     * @notice Name an address that may settle this duel on the caller's behalf.
+     *         Callable by either participant while the duel is open or running.
+     *
+     *         This exists because MpcCore.validateCiphertext binds an input text
+     *         to the immediate caller. A contract participant cannot hold an AES
+     *         key or sign an input text, and it cannot forward one signed by a
+     *         user either — the precompile rejects it. So the user settles
+     *         directly and this records who they are settling for.
+     *
+     *         The delegate cannot choose the score: submitFinalPnL still pins it
+     *         to the live PnL recorded for the participant, which only the
+     *         participant could write.
+     */
+    function setSettlementDelegate(uint256 duelId, address delegate) external {
+        Duel storage duel = duels[duelId];
+        require(duel.state != DuelState.Resolved, "Duel resolved");
+        require(msg.sender == duel.agentA || msg.sender == duel.agentB, "Not a participant");
+        require(delegate != address(0), "Zero delegate");
+
+        settlementDelegate[duelId][delegate] = msg.sender;
+        emit SettlementDelegateSet(duelId, msg.sender, delegate);
+    }
+
+    /**
      * @notice Submit the encrypted final score. Accepted only in the window after
      *         endTime, once per agent, and only from an agent that reported live
      *         PnL during the duel.
@@ -186,8 +222,16 @@ contract DuelManager {
         require(block.timestamp >= duel.endTime, "Duel still running");
         require(block.timestamp < duel.endTime + finalWindow(), "Final window closed");
 
-        bool isA = msg.sender == duel.agentA;
-        require(isA || msg.sender == duel.agentB, "Not a participant");
+        // Who this settlement is for. Normally the caller; for a duel whose
+        // participant is a contract, the delegate it named. Either way the
+        // ciphertext below is validated against msg.sender's own signature.
+        address principal = msg.sender;
+        if (msg.sender != duel.agentA && msg.sender != duel.agentB) {
+            principal = settlementDelegate[duelId][msg.sender];
+            require(principal != address(0), "Not a participant");
+        }
+
+        bool isA = principal == duel.agentA;
         require(isA ? duel.agentASubmitted : duel.agentBSubmitted, "No live PnL to settle");
         require(!(isA ? duel.finalASubmitted : duel.finalBSubmitted), "Already submitted");
 
@@ -203,15 +247,19 @@ contract DuelManager {
             "Final PnL must match last live PnL"
         );
 
+        // Off-board the user copy to whoever actually submitted: a contract
+        // participant has no AES key, so keying it to the participant would make
+        // the readback useless. The network ciphertext, which resolution uses, is
+        // unaffected either way.
         if (isA) {
-            duel.finalPnlA       = MpcCore.offBoardCombined(gtPnL, duel.agentA);
+            duel.finalPnlA       = MpcCore.offBoardCombined(gtPnL, msg.sender);
             duel.finalASubmitted = true;
         } else {
-            duel.finalPnlB       = MpcCore.offBoardCombined(gtPnL, duel.agentB);
+            duel.finalPnlB       = MpcCore.offBoardCombined(gtPnL, msg.sender);
             duel.finalBSubmitted = true;
         }
 
-        emit FinalPnLSubmitted(duelId, msg.sender);
+        emit FinalPnLSubmitted(duelId, principal);
     }
 
     /**

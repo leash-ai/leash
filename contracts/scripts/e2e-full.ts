@@ -127,8 +127,11 @@ async function main() {
   }
 
   /**
-   * Settle one side. The owner is agentB and calls DuelManager directly; the
-   * renter is behind the marketplace (agentA) and goes through its proxy.
+   * Settle one side. Both go straight to DuelManager, and they have to:
+   * MpcCore.validateCiphertext binds an input text to the immediate caller, so a
+   * ciphertext forwarded by a contract is always rejected — measured, not
+   * assumed. The owner is agentB and settles for itself; the renter settles for
+   * agentA (the marketplace) as the delegate rentAndDuel named.
    */
   async function settleOwner(duelId: bigint, pnlBps: number) {
     const enc = await encryptScore(ownerCoti, pnlBps);
@@ -136,10 +139,10 @@ async function main() {
     await send("SETTLE-B", dmSigned.submitFinalPnL, [duelId, enc], { gasLimit: 3_000_000n });
   }
 
-  async function settleRenter(rentalId: bigint, pnlBps: number) {
+  async function settleRenter(duelId: bigint, pnlBps: number) {
     const enc = await encryptScore(renterCoti, pnlBps);
-    const mktSigned = new ethers.Contract(MKT_ADDR, artifact("AgentMarketplace").abi, renterCoti);
-    await send("SETTLE-A", mktSigned.submitRenterFinalPnL, [rentalId, enc], { gasLimit: 3_000_000n });
+    const dmSigned = new ethers.Contract(DM_ADDR, artifact("TestDuelManager").abi, renterCoti);
+    await send("SETTLE-A", dmSigned.submitFinalPnL, [duelId, enc], { gasLimit: 3_000_000n });
   }
 
   // ── SETUP ────────────────────────────────────────────────────────────────
@@ -340,7 +343,7 @@ async function main() {
 
     // Settle: both sides submit their score encrypted, pinned in-circuit to the
     // live value each of them reported above.
-    await settleRenter(rentalId, renterPnl);
+    await settleRenter(duelId, renterPnl);
     await settleOwner(duelId, ownerPnl);
 
     const settleStatus = await dm.getFinalPnLStatus(duelId);
@@ -428,7 +431,7 @@ async function main() {
     // Settle on the last values that landed — 200 and 150. The pin rejects
     // anything else, which is also what makes E1/E2 load-bearing rather than
     // cosmetic: the overwritten values are the ones settlement is held to.
-    await settleRenter(rentalId, 200);
+    await settleRenter(duelId, 200);
     await settleOwner(duelId, 150);
 
     await sleep((FINAL_WINDOW + 5) * 1000);

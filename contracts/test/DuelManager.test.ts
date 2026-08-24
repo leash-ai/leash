@@ -244,6 +244,92 @@ describe("DuelManager", function () {
       await time.increase(FINAL_WINDOW);
     }
 
+    // A contract participant cannot settle for itself: MpcCore.validateCiphertext
+    // binds an input text to the immediate caller, so neither holding a key in the
+    // contract nor forwarding a user's ciphertext works — both revert on testnet.
+    // AgentMarketplace therefore names the renter as its settlement delegate.
+    // Only the authorisation half is testable here; the ciphertext half is
+    // scenario M of scripts/e2e-full.ts.
+    describe("settlement delegation", () => {
+      it("only a participant can name a delegate", async () => {
+        await expect(
+          dm.connect(deployer).setSettlementDelegate(1, agentC.address)
+        ).to.be.revertedWith("Not a participant");
+      });
+
+      it("rejects the zero address", async () => {
+        await expect(
+          dm.connect(agentA).setSettlementDelegate(1, ethers.ZeroAddress)
+        ).to.be.revertedWith("Zero delegate");
+      });
+
+      it("emits the principal and the delegate", async () => {
+        await expect(dm.connect(agentA).setSettlementDelegate(1, agentC.address))
+          .to.emit(dm, "SettlementDelegateSet").withArgs(1, agentA.address, agentC.address);
+      });
+
+      it("a named delegate settles for its principal", async () => {
+        await dm.connect(agentA).updateLivePnL(1, 500);
+        await dm.connect(agentB).updateLivePnL(1, 200);
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await time.increase(DURATION_1H);
+
+        await dm.connect(agentC).submitFinalPnLPlain(1);
+
+        const status = await dm.getFinalPnLStatus(1);
+        expect(status[0]).to.equal(true);   // agentA settled, via its delegate
+        expect(status[1]).to.equal(false);  // agentC did not settle for itself
+      });
+
+      it("reports the principal, not the delegate, in the event", async () => {
+        await dm.connect(agentA).updateLivePnL(1, 500);
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await time.increase(DURATION_1H);
+
+        await expect(dm.connect(agentC).submitFinalPnLPlain(1))
+          .to.emit(dm, "FinalPnLSubmitted").withArgs(1, agentA.address);
+      });
+
+      it("an address that was never named cannot settle", async () => {
+        await dm.connect(agentA).updateLivePnL(1, 500);
+        await time.increase(DURATION_1H);
+        await expect(
+          dm.connect(agentC).submitFinalPnLPlain(1)
+        ).to.be.revertedWith("Not a participant");
+      });
+
+      it("a delegate cannot settle a side that never reported live PnL", async () => {
+        await dm.connect(agentB).updateLivePnL(1, 200);
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await time.increase(DURATION_1H);
+        await expect(
+          dm.connect(agentC).submitFinalPnLPlain(1)
+        ).to.be.revertedWith("No live PnL to settle");
+      });
+
+      it("the winner is unchanged whether a side settles itself or by delegate", async () => {
+        await dm.connect(agentA).updateLivePnL(1, 900);
+        await dm.connect(agentB).updateLivePnL(1, 150);
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await time.increase(DURATION_1H);
+
+        await dm.connect(agentC).submitFinalPnLPlain(1);   // agentA, by delegate
+        await dm.connect(agentB).submitFinalPnLPlain(1);   // agentB, itself
+        await time.increase(FINAL_WINDOW);
+
+        await dm.connect(deployer).resolveDuel(1);
+        expect((await dm.getDuel(1))[6]).to.equal(agentA.address);
+      });
+
+      it("cannot name a delegate once the duel is resolved", async () => {
+        await play(500, 200, "none");
+        await dm.connect(deployer).resolveDuel(1);
+        await expect(
+          dm.connect(agentA).setSettlementDelegate(1, agentC.address)
+        ).to.be.revertedWith("Duel resolved");
+      });
+    });
+
     describe("submitFinalPnL window", () => {
       it("cannot settle while the duel is still running", async () => {
         await dm.connect(agentA).updateLivePnL(1, 100);

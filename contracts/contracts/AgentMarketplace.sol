@@ -149,8 +149,15 @@ contract AgentMarketplace {
         pendingUSDC[l.owner]       += ownerCut;
         pendingUSDC[feeRecipient]  += protocolCut;
 
-        // Create duel — renter is agentA. Owner's agent will join as agentB.
+        // Create duel — this contract is agentA, standing in for the renter.
         duelId = duelManager.createDuel{value: msg.value}(duration);
+
+        // Name the renter as the address that settles agentA's side. This
+        // contract cannot do it itself: settlement needs a signed input text and
+        // MpcCore.validateCiphertext binds the signature to the immediate caller,
+        // so neither holding a key here nor forwarding the renter's ciphertext
+        // works. The renter calls DuelManager.submitFinalPnL directly instead.
+        duelManager.setSettlementDelegate(duelId, msg.sender);
 
         rentalId = ++rentalCount;
         rentals[rentalId] = RentalAgreement({
@@ -185,31 +192,6 @@ contract AgentMarketplace {
         RentalAgreement storage r = rentals[rentalId];
         require(msg.sender == r.renter, "Not the renter");
         duelManager.updateLivePnL(r.duelId, pnlBps);
-    }
-
-    /**
-     * @notice Renter settles their side of the duel with an encrypted final score.
-     *         The marketplace is agentA in DuelManager, so the renter cannot call
-     *         submitFinalPnL directly and this proxies it. Without this the renter
-     *         could never settle and would forfeit every rented duel.
-     *
-     *         The renter encrypts for (DuelManager, submitFinalPnL selector) with
-     *         their own key, and DuelManager pins the value to the last live PnL
-     *         this contract reported on their behalf — so the marketplace cannot
-     *         alter the score it forwards.
-     *
-     * @dev    Whether the MPC precompile accepts an input text that arrives via a
-     *         proxy — signed by the renter, delivered by this contract — is
-     *         precompile behaviour, not something the Solidity here can assert.
-     *         Scenario N of scripts/e2e-full.ts is what establishes it. If the
-     *         precompile binds the signature to the immediate caller, this needs
-     *         DuelManager to accept a settlement for a named participant from a
-     *         registered proxy instead, with the pin unchanged.
-     */
-    function submitRenterFinalPnL(uint256 rentalId, itUint64 calldata encryptedPnL) external {
-        RentalAgreement storage r = rentals[rentalId];
-        require(msg.sender == r.renter, "Not the renter");
-        duelManager.submitFinalPnL(r.duelId, encryptedPnL);
     }
 
     // ─── Settlement ───────────────────────────────────────────────────────────

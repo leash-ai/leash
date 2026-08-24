@@ -36,15 +36,22 @@ contract LocalDuelManager is TestDuelManager {
         require(block.timestamp >= duel.endTime, "Duel still running");
         require(block.timestamp < duel.endTime + finalWindow(), "Final window closed");
 
-        bool isA = msg.sender == duel.agentA;
-        require(isA || msg.sender == duel.agentB, "Not a participant");
+        // Same principal resolution as submitFinalPnL, so the delegation rules
+        // are covered locally even though the ciphertext half cannot be.
+        address principal = msg.sender;
+        if (msg.sender != duel.agentA && msg.sender != duel.agentB) {
+            principal = settlementDelegate[duelId][msg.sender];
+            require(principal != address(0), "Not a participant");
+        }
+
+        bool isA = principal == duel.agentA;
         require(isA ? duel.agentASubmitted : duel.agentBSubmitted, "No live PnL to settle");
         require(!(isA ? duel.finalASubmitted : duel.finalBSubmitted), "Already submitted");
 
         if (isA) duel.finalASubmitted = true;
         else     duel.finalBSubmitted = true;
 
-        emit FinalPnLSubmitted(duelId, msg.sender);
+        emit FinalPnLSubmitted(duelId, principal);
     }
 
     /**
