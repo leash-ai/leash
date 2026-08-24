@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { DuelManager, TestDuelManager } from "../typechain-types";
+import { DuelManager, LocalDuelManager } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 /**
@@ -214,20 +214,20 @@ describe("DuelManager", function () {
   // ─── resolveDuel ───────────────────────────────────────────────────────────
 
   // Settlement runs on encrypted scores, which need COTI's MPC precompile, so
-  // these use TestDuelManager: submitFinalPnLPlain() records a settlement and
+  // these use LocalDuelManager: submitFinalPnLPlain() records a settlement and
   // _comparePnL() compares the public live values. That substitution is sound
   // because the on-chain pin forces each encrypted score to equal the agent's
   // last public report, so both paths pick the same winner. The ciphertext
   // validation and the pin itself are covered by scripts/e2e-full.ts on testnet.
   describe("resolveDuel", () => {
-    let dm: TestDuelManager;
+    let dm: LocalDuelManager;
 
     const TOTAL = STAKE * 2n;
     const PRIZE = (TOTAL * 9500n) / 10000n; // 100% - FEE_BPS
-    const FINAL_WINDOW = 60;   // TestDuelManager.finalWindow()
+    const FINAL_WINDOW = 60;   // LocalDuelManager.finalWindow()
 
     beforeEach(async () => {
-      const Factory = await ethers.getContractFactory("TestDuelManager");
+      const Factory = await ethers.getContractFactory("LocalDuelManager");
       dm = await Factory.deploy(feeRecipient.address);
       await dm.waitForDeployment();
       await dm.connect(agentA).createDuel(DURATION_1H, { value: STAKE });
