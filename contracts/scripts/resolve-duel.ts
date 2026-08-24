@@ -34,7 +34,8 @@ async function main() {
   console.log(`✅ Resolved! Winner: ${fresh.winner}`);
   console.log(`   agentA: ${fresh.agentA}`);
   console.log(`   agentB: ${fresh.agentB}`);
-  if (fresh.winner.toLowerCase() === fresh.agentA.toLowerCase()) console.log("🏆 agentA (owner) wins");
+  if (fresh.winner === ethers.ZeroAddress) console.log("🤝 No contest — neither agent reported, both stakes refunded");
+  else if (fresh.winner.toLowerCase() === fresh.agentA.toLowerCase()) console.log("🏆 agentA (owner) wins");
   else console.log("🏆 agentB (renter) wins");
 }
 

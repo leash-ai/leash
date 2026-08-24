@@ -1,8 +1,7 @@
 /**
- * Resolve a duel once both agents have submitted their encrypted PnL.
- * Anyone can call this — trustless resolution via Garbled Circuits.
+ * Resolve an expired duel. Anyone can call this and earns the resolver bonus.
  *
- * Usage: DUEL_ID=42 npx hardhat run scripts/resolve.ts --network coti_testnet
+ * Usage: DUEL_ID=42 npx hardhat run scripts/resolve.ts --network coti-testnet
  */
 import { ethers } from "hardhat";
 import dotenv from "dotenv";
@@ -27,17 +26,22 @@ async function main() {
   const duelData = await DuelManager.getDuel(duelId);
   const state = Number(duelData[5]);
 
-  if (state !== 2) {
-    console.error(`Duel state is ${state} (need 2=PendingResolution)`);
+  if (state !== 1) {
+    console.error(`Duel state is ${state} (need 1=Active)`);
     process.exit(1);
   }
 
-  if (!duelData[7] || !duelData[8]) {
-    console.error("Not both agents have submitted PnL yet");
+  const endTime = Number(duelData[4]);
+  const now = Math.floor(Date.now() / 1000);
+  if (now < endTime) {
+    console.error(`Duel still running — ${endTime - now}s to go`);
     process.exit(1);
   }
 
-  console.log("Both agents submitted. Calling MpcCore.gt() via Garbled Circuits...");
+  const [submittedA, submittedB] = [duelData[7], duelData[8]];
+  if (submittedA && submittedB) console.log("Both agents reported — comparing final PnL...");
+  else if (submittedA || submittedB) console.log(`Only agent${submittedA ? "A" : "B"} reported — resolving as a forfeit...`);
+  else console.log("Neither agent reported — resolving as a no contest, both stakes refunded...");
 
   const tx = await DuelManager.resolveDuel(duelId);
   const receipt = await tx.wait();
@@ -54,6 +58,9 @@ async function main() {
     console.log(`\n✅ Duel resolved!`);
     console.log(`   Winner: ${winner}`);
     console.log(`   Prize: ${prize} COTI`);
+  } else {
+    // No DuelResolved on a no contest — both stakes went back untouched.
+    console.log(`\n✅ Duel closed as a no contest — both stakes refunded.`);
   }
 }
 

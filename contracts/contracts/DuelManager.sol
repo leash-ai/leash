@@ -10,7 +10,11 @@ pragma solidity ^0.8.19;
  * and positions never touch the chain.
  *
  * Resolution: the last updateLivePnL submitted before endTime is the final score.
- * Higher pnlBps wins. Anyone can call resolveDuel() and earns a resolver bonus.
+ * Anyone can call resolveDuel() and earns a resolver bonus. Outcome depends on
+ * who reported before endTime:
+ *   both reported    → higher pnlBps wins
+ *   one reported     → that agent wins by forfeit
+ *   neither reported → no contest, both stakes refunded in full, no fee
  */
 contract DuelManager {
 
@@ -53,6 +57,8 @@ contract DuelManager {
     event LivePnLUpdated(uint256 indexed duelId, address indexed agent, int256 pnlBps);
     event DuelResolved(uint256 indexed duelId, address indexed winner, uint256 prize);
     event DuelRefunded(uint256 indexed duelId, address indexed agentA, uint256 amount);
+    event DuelForfeited(uint256 indexed duelId, address indexed winner, address indexed loser);
+    event DuelNoContest(uint256 indexed duelId, uint256 refundPerAgent);
 
     constructor(address _feeRecipient) {
         feeRecipient = _feeRecipient;
@@ -86,11 +92,16 @@ contract DuelManager {
     /**
      * @notice Submit live PnL. Can be called multiple times — last value before
      *         expiry is the final score. Callable by agentA or agentB.
+     *
+     *         Submissions close at endTime. Scores are public, so accepting them
+     *         after expiry would let an agent read its opponent's final score and
+     *         overwrite its own to win.
      * @param pnlBps Performance in basis points (e.g. +523 = +5.23%, -210 = -2.10%)
      */
     function updateLivePnL(uint256 duelId, int256 pnlBps) external {
         Duel storage duel = duels[duelId];
         require(duel.state == DuelState.Active, "Duel not active");
+        require(block.timestamp < duel.endTime, "Submissions closed");
         require(msg.sender == duel.agentA || msg.sender == duel.agentB, "Not a participant");
 
         if (msg.sender == duel.agentA) {
@@ -106,23 +117,54 @@ contract DuelManager {
     }
 
     /**
-     * @notice Resolve the duel. Callable by anyone once expired and both agents
-     *         have submitted. Higher pnlBps wins.
+     * @notice Resolve the duel. Callable by anyone once expired.
      *         Caller earns RESOLVER_FEE_BPS (0.5%) of the total stake as a bonus.
+     *
+     *         Previously this required both agents to have submitted, which left
+     *         no way to settle a duel where one agent went offline — resolveDuel
+     *         reverted forever and refundStuck/cancelDuel only cover Open duels,
+     *         so both stakes were locked permanently.
+     *
+     *         An agent that never reports did not compete, so it forfeits. If
+     *         neither reported there is nothing to compare and both stakes are
+     *         returned in full without a protocol fee.
+     *
+     *         No waiting period is needed: submissions close at endTime (see
+     *         updateLivePnL), so the set of reporting agents is already final.
      */
     function resolveDuel(uint256 duelId) external {
         Duel storage duel = duels[duelId];
         require(duel.state == DuelState.Active, "Duel not active");
         require(block.timestamp >= duel.endTime, "Duel still running");
-        require(duel.agentASubmitted && duel.agentBSubmitted, "Both agents must submit PnL");
 
-        bool aWins = duel.agentAPnL > duel.agentBPnL;
+        duel.state = DuelState.Resolved;
+
+        // Neither agent reported — no contest. Refund both stakes, charge nothing.
+        if (!duel.agentASubmitted && !duel.agentBSubmitted) {
+            uint256 refund = duel.stake;
+            emit DuelNoContest(duelId, refund);
+            payable(duel.agentA).transfer(refund);
+            payable(duel.agentB).transfer(refund);
+            return;
+        }
+
+        bool aWins;
+        if (!duel.agentBSubmitted) {
+            aWins = true;   // agentB never reported — agentA wins by forfeit
+        } else if (!duel.agentASubmitted) {
+            aWins = false;  // agentA never reported — agentB wins by forfeit
+        } else {
+            aWins = duel.agentAPnL > duel.agentBPnL;
+        }
 
         address winner = aWins ? duel.agentA : duel.agentB;
         address loser  = aWins ? duel.agentB : duel.agentA;
 
         duel.winner = winner;
-        duel.state  = DuelState.Resolved;
+
+        if (!duel.agentASubmitted || !duel.agentBSubmitted) {
+            emit DuelForfeited(duelId, winner, loser);
+        }
 
         wins[winner]++;
         losses[loser]++;

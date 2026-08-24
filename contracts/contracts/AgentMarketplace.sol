@@ -212,6 +212,17 @@ contract AgentMarketplace {
             return;
         }
 
+        // A resolved duel with a joined opponent but no winner is a DuelManager
+        // no-contest: neither agent reported, so both stakes were refunded and this
+        // contract is holding the renter's. Return it and leave the agent's record
+        // untouched — nothing was contested, so it is not a defeat.
+        if (winner == address(0)) {
+            r.settled = true;
+            payable(r.renter).transfer(r.stake);
+            emit RentalSettled(rentalId, false);
+            return;
+        }
+
         r.settled = true;
 
         bool agentWon = (winner != address(0)) && (winner != agentA);
