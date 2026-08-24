@@ -5,13 +5,17 @@
  * It is derived deterministically from your private key via the COTI
  * AccountOnboard contract. Running this twice gives the same key.
  *
- * The key is stored in your .env as AES_KEY (for your wallet)
- * and OWNER_AES_KEY (for the owner sending commands).
+ * The same key encrypts private messages and the final scores submitted for
+ * settlement, so every wallet that settles a duel needs one.
+ *
+ * Written to agent/.env as AES_KEY (the agent), OWNER_AES_KEY (the owner sending
+ * commands) and RENTER_AES_KEY (a renter settling through the marketplace).
  *
  * Usage:
  *   ts-node messaging/setup.ts
- *   ts-node messaging/setup.ts agent   (generates for AGENT_PRIVATE_KEY)
- *   ts-node messaging/setup.ts owner   (generates for SIGNING_KEYS[0])
+ *   ts-node messaging/setup.ts agent    (generates for AGENT_PRIVATE_KEY)
+ *   ts-node messaging/setup.ts owner    (generates for SIGNING_KEYS[0])
+ *   ts-node messaging/setup.ts renter   (generates for RENTER_PRIVATE_KEY)
  */
 import { Wallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
@@ -38,7 +42,9 @@ async function deriveAesKey(privateKey: string): Promise<string> {
 }
 
 function updateEnv(key: string, value: string) {
-  const envPath = path.join(__dirname, "../../.env");
+  // agent/.env — dotenv.config() resolves from the agent package, so writing to
+  // the repo root put the key somewhere nothing reads.
+  const envPath = path.join(__dirname, "../.env");
   let content = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
 
   if (content.includes(`${key}=`)) {
@@ -72,6 +78,17 @@ async function main() {
     } else {
       const aesKey = await deriveAesKey(ownerKey);
       updateEnv("OWNER_AES_KEY", aesKey);
+      console.log(`   AES Key: ${aesKey}`);
+    }
+  }
+
+  if (mode === "renter" || mode === "both") {
+    const renterKey = process.env.RENTER_PRIVATE_KEY;
+    if (!renterKey) {
+      console.log("⚠️  RENTER_PRIVATE_KEY not set — skipping renter key generation");
+    } else {
+      const aesKey = await deriveAesKey(renterKey);
+      updateEnv("RENTER_AES_KEY", aesKey);
       console.log(`   AES Key: ${aesKey}`);
     }
   }

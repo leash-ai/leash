@@ -2,11 +2,12 @@
  * Market Maker Strategy
  *
  * Profits from spread by maintaining balanced positions.
- * Buys when RSI is oversold (<30), sells when overbought (>70).
+ * Goes long when RSI is oversold (<30), short when overbought (>70).
  * Keeps portfolio diversified across all tracked assets.
  */
 
 import { PriceData } from "./momentum";
+import { Side, Trade } from "./types";
 
 interface AssetState {
   prices: number[];
@@ -51,8 +52,8 @@ export class MarketMakerStrategy {
     return 100 - 100 / (1 + rs);
   }
 
-  computeTrades(): Array<{ asset: string; side: "buy" | "sell"; sizePercent: number; reason: string }> {
-    const trades = [];
+  computeTrades(): Trade[] {
+    const trades: Trade[] = [];
 
     for (const [asset, state] of Object.entries(this.assets)) {
       if (state.prices.length < 2) continue;
@@ -60,19 +61,19 @@ export class MarketMakerStrategy {
       const rsi = this.computeRSI(state.prices);
 
       if (rsi < this.OVERSOLD && state.position !== 1) {
-        trades.push({ asset, side: "buy" as const, sizePercent: 20, reason: `RSI ${rsi.toFixed(1)} oversold` });
+        trades.push({ asset, side: "long", sizePercent: 20, reason: `RSI ${rsi.toFixed(1)} oversold` });
       } else if (rsi > this.OVERBOUGHT && state.position !== -1) {
-        trades.push({ asset, side: "sell" as const, sizePercent: 20, reason: `RSI ${rsi.toFixed(1)} overbought` });
+        trades.push({ asset, side: "short", sizePercent: 20, reason: `RSI ${rsi.toFixed(1)} overbought` });
       }
     }
 
     return trades;
   }
 
-  executeTrade(asset: string, side: "buy" | "sell", _sizePercent: number, price: number): void {
+  executeTrade(asset: string, side: Side, _sizePercent: number, price: number): void {
     const state = this.assets[asset];
     if (!state) return;
-    state.position = side === "buy" ? 1 : -1;
+    state.position = side === "long" ? 1 : -1;
     state.entryPrice = price;
   }
 
