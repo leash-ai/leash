@@ -14,6 +14,7 @@ import axios from "axios";
 import { MomentumStrategy, PriceData } from "./strategies/momentum";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
 import { MarketMakerStrategy } from "./strategies/marketMaker";
+import { Strategy } from "./strategies/types";
 
 dotenv.config();
 
@@ -101,7 +102,7 @@ async function runDuel(duelId: number) {
   const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
   const contract = new ethers.Contract(DUEL_MANAGER_ADDRESS, DUEL_MANAGER_ABI, wallet);
 
-  const strategy =
+  const strategy: Strategy =
     STRATEGY === "momentum"
       ? new MomentumStrategy(1000)
       : STRATEGY === "meanReversion"

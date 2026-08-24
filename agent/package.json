@@ -10,23 +10,23 @@
     "duel:run": "ts-node agent.ts run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0",
     "@coti-io/coti-ethers": "^1.0.5",
+    "@coti-io/coti-sdk-private-messaging": "^0.2.3",
+    "@mistralai/mistralai": "^2.3.0",
     "axios": "^1.7.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.5",
-    "ethers": "^6.13.0"
+    "ethers": "^6.13.0",
+    "express": "^5.2.1",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@mistralai/mistralai": "^2.3.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.25",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.18.1",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.0.0",
-    "ws": "^8.21.0"
+    "typescript": "^5.0.0"
   }
 }
