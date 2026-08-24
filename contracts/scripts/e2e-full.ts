@@ -536,9 +536,18 @@ async function main() {
       check("J3: Rent delisted agent blocked", true);
     }
 
-    // Re-list to restore
-    await send("RELIST", mkt.listAgent, [alphaId, RENTAL_FEE, 3000]);
-    check("J4: AlphaBot re-listed successfully", true);
+    // Re-list to restore. listAgent mints a NEW listing rather than reactivating
+    // the delisted one, so alphaListingId has to follow it — otherwise every
+    // later scenario that rents AlphaBot reverts on "Not available". Scenario L
+    // is the first one that does, which is why this only surfaced once L existed.
+    const relistRc = await send("RELIST", mkt.listAgent, [alphaId, RENTAL_FEE, 3000]);
+    const relistLog = relistRc?.logs.find((l: any) =>
+      l.topics[0] === ethers.id("AgentListed(uint256,uint256,uint256,uint256)")
+    );
+    alphaListingId = BigInt(relistLog!.topics[1]);
+    check("J4: AlphaBot re-listed under a new id", alphaListingId > 0n,
+          `listingId=${alphaListingId}`);
+    check("J5: the new listing is rentable", (await mkt.listings(alphaListingId)).available);
   }
 
   // ── SCENARIO K: Auth edge cases ───────────────────────────────────────────
