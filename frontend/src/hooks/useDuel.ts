@@ -6,6 +6,7 @@ import { ethers } from "ethers";
 const DUEL_MANAGER_ABI = [
   "function getDuel(uint256 duelId) view returns (address agentA, address agentB, uint256 stake, uint256 startTime, uint256 endTime, uint8 state, address winner, bool agentASubmitted, bool agentBSubmitted, uint256 createdAt)",
   "function getLivePnL(uint256 duelId) view returns (int256 pnlA, int256 pnlB, uint256 updatedA, uint256 updatedB)",
+  "function getFinalPnLStatus(uint256 duelId) view returns (bool agentASettled, bool agentBSettled, uint256 windowClosesAt)",
 ];
 
 export interface DuelData {
@@ -25,9 +26,20 @@ interface LivePnL {
   pnlB: number;
 }
 
+/**
+ * Settlement progress. Between endTime and windowClosesAt each agent submits its
+ * final score encrypted; once the window shuts anyone may call resolveDuel.
+ */
+export interface SettlementStatus {
+  agentASettled: boolean;
+  agentBSettled: boolean;
+  windowClosesAt: number;
+}
+
 export function useDuel(duelId: number) {
   const [duel, setDuel] = useState<DuelData | null>(null);
   const [livePnL, setLivePnL] = useState<LivePnL>({ pnlA: 0, pnlB: 0 });
+  const [settlement, setSettlement] = useState<SettlementStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
@@ -39,9 +51,10 @@ export function useDuel(duelId: number) {
       );
       const contract = new ethers.Contract(dmAddr, DUEL_MANAGER_ABI, provider);
 
-      const [rawDuel, rawPnL] = await Promise.all([
+      const [rawDuel, rawPnL, rawSettle] = await Promise.all([
         contract.getDuel(duelId),
         contract.getLivePnL(duelId).catch(() => [0, 0, 0, 0]),
+        contract.getFinalPnLStatus(duelId).catch(() => null),
       ]);
 
       setDuel({
@@ -60,6 +73,16 @@ export function useDuel(duelId: number) {
         pnlA: Number(rawPnL[0]),
         pnlB: Number(rawPnL[1]),
       });
+
+      setSettlement(
+        rawSettle
+          ? {
+              agentASettled: rawSettle[0],
+              agentBSettled: rawSettle[1],
+              windowClosesAt: Number(rawSettle[2]) * 1000,
+            }
+          : null,
+      );
     } catch (e) {
       console.error("Failed to fetch duel:", e);
     } finally {
@@ -74,5 +97,5 @@ export function useDuel(duelId: number) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duelId]);
 
-  return { duel, livePnL, loading };
+  return { duel, livePnL, settlement, loading, refresh: fetchData };
 }

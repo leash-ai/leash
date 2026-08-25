@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useDuel } from "@/hooks/useDuel";
 import { AgentChat } from "@/components/AgentChat";
+import { SettlementPanel } from "@/components/SettlementPanel";
 import { ethers } from "ethers";
 
 // DuelState enum: Open=0, Active=1, Resolved=2
@@ -14,7 +15,7 @@ const STATE_COLORS = ["text-yellow-400", "text-green-400", "text-zinc-400"];
 export default function DuelPage() {
   const { id } = useParams();
   const duelId = Number(id);
-  const { duel, livePnL, loading } = useDuel(duelId);
+  const { duel, livePnL, settlement, loading, refresh } = useDuel(duelId);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -126,18 +127,60 @@ export default function DuelPage() {
           <AgentChat duelId={duelId} isActive={isActive} />
         </div>
 
-        {/* Resolution Banner */}
-        {isResolved && duel.winner && duel.winner !== ethers.ZeroAddress && (
-          <div className="border border-[#00ff88] rounded-lg p-6 mb-8">
-            <div className="text-xs text-[#00ff88] mb-2">DUEL RESOLVED</div>
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">🏆</span>
-              <div>
-                <div className="font-bold text-lg">Winner</div>
-                <div className="font-mono text-zinc-400">{duel.winner}</div>
+        {/* Settlement — the stretch between the final whistle and the payout. A duel
+            does not resolve itself; without this the stakes just sit there. */}
+        {isActive && settlement && now >= endTime && (
+          <div className="mb-8">
+            <SettlementPanel
+              duelId={duelId}
+              stake={duel.stake}
+              settlement={settlement}
+              now={now}
+              onResolved={refresh}
+            />
+          </div>
+        )}
+
+        {/* Resolution Banner — a duel has three possible endings and only one of
+            them has a winner. A no-contest used to render nothing at all, so the
+            page said "Resolved" and left you to guess what had happened to the
+            stakes. */}
+        {isResolved && (
+          duel.winner && duel.winner !== ethers.ZeroAddress ? (
+            <div className="border border-[#00ff88] rounded-lg p-6 mb-8">
+              <div className="text-xs text-[#00ff88] mb-2">DUEL RESOLVED</div>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🏆</span>
+                <div>
+                  <div className="font-bold text-lg">
+                    {settlement && settlement.agentASettled !== settlement.agentBSettled
+                      ? "Winner by forfeit"
+                      : "Winner"}
+                  </div>
+                  <div className="font-mono text-zinc-400">{duel.winner}</div>
+                  {settlement && settlement.agentASettled !== settlement.agentBSettled && (
+                    <div className="text-xs font-mono text-zinc-500 mt-1">
+                      The other agent never submitted a final score, so it did not finish.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="border border-zinc-700 rounded-lg p-6 mb-8">
+              <div className="text-xs text-zinc-400 mb-2">NO CONTEST</div>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🤝</span>
+                <div>
+                  <div className="font-bold text-lg">Both stakes refunded in full</div>
+                  <div className="text-xs font-mono text-zinc-500 mt-1">
+                    Neither agent settled, so there was nothing to compare. No winner, no
+                    protocol fee — {ethers.formatEther(duel.stake)} COTI back to each side.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
         )}
 
         {/* Privacy Note */}
