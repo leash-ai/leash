@@ -51,12 +51,22 @@ let cached: Promise<PriceData[]> | undefined;
  * The data is hourly, so a shared file good for 30 minutes costs nothing in
  * freshness and means one fetch per machine rather than one per process.
  */
-const CACHE_FILE = join(__dirname, "..", ".price-history-cache.json");
 const CACHE_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Read at call time, not at import, and overridable via LEASH_PRICE_CACHE.
+ *
+ * Tests need to point this somewhere empty: a warm cache on the developer's
+ * machine made "degrades to a cold start when history is unavailable" pass in CI
+ * and fail locally, since the cache answered before the stubbed fetch could.
+ * A test whose result depends on an untracked file is not a test.
+ */
+const cacheFile = () =>
+  process.env.LEASH_PRICE_CACHE || join(__dirname, "..", ".price-history-cache.json");
 
 function readCacheFile(): PriceData[] | null {
   try {
-    const raw = JSON.parse(readFileSync(CACHE_FILE, "utf8")) as { fetchedAt: number; points: PriceData[] };
+    const raw = JSON.parse(readFileSync(cacheFile(), "utf8")) as { fetchedAt: number; points: PriceData[] };
     if (!raw?.points?.length) return null;
     if (Date.now() - raw.fetchedAt > CACHE_TTL_MS) return null;
     return raw.points;
@@ -67,7 +77,7 @@ function readCacheFile(): PriceData[] | null {
 
 function writeCacheFile(points: PriceData[]): void {
   try {
-    writeFileSync(CACHE_FILE, JSON.stringify({ fetchedAt: Date.now(), points }));
+    writeFileSync(cacheFile(), JSON.stringify({ fetchedAt: Date.now(), points }));
   } catch {
     // a read-only checkout is not a reason to fail a warm-up
   }
