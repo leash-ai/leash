@@ -27,6 +27,7 @@ import { MomentumStrategy, PriceData } from "./strategies/momentum";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
 import { MarketMakerStrategy } from "./strategies/marketMaker";
+import { Strategy } from "./strategies/types";
 import { warmUpStrategy } from "./strategies/warmup";
 
 dotenv.config();
@@ -67,7 +68,7 @@ async function fetchPrices(): Promise<PriceData> {
   }
 }
 
-function makeStrategy(name: string) {
+function makeStrategy(name: string): Strategy {
   if (name === "meanReversion") return new MeanReversionStrategy();
   if (name === "marketMaker")   return new MarketMakerStrategy();
   return new MomentumStrategy(1000);
@@ -86,6 +87,15 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
   // as 1970 and the loop exits before it ever polls.
   let duelData = await dm.getDuel(duelId);
   let state = Number(duelData[5]);
+
+  // Catch-up replays every unsettled rental in the last 1000 blocks, and most of
+  // those duels are finished. Running the loop on one means ticking against an
+  // endTime in the past and then failing a settlement that was never possible.
+  if (state === 2) {
+    log(`⏭  Rental #${rentalId} — duel #${duelId} is already resolved, nothing to play`);
+    return;
+  }
+
   if (state === 0) {
     log("   Waiting for agentB to join...");
     const giveUpAt = Date.now() + JOIN_WAIT_MS;
@@ -128,7 +138,6 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
     const trades = strategy.computeTrades();
     for (const t of trades) {
       const price = prices[t.asset as keyof PriceData] as number;
-      // @ts-ignore
       strategy.executeTrade(t.asset, t.side, t.sizePercent, price);
     }
 
