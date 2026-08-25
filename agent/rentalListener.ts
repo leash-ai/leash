@@ -125,9 +125,9 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
   log(`   Duration: ${Math.round((endTime - Date.now()) / 60000)} min`);
   log(`   Send commands: ts-node messaging/sendCommand.ts <cmd> [args]`);
 
-  const seeded = await warmUpStrategy(strategy);
-  log(seeded ? `   Warmed up with ${seeded} historical price points`
-             : "   No price history available — starting cold");
+  const warm = await warmUpStrategy(strategy);
+  log(warm.points ? `   Warmed up with ${warm.points} historical price points`
+                  : `   Starting cold — no price history (${warm.error ?? "unknown"})`);
 
   let prices = await fetchPrices();
   strategy.addPriceData(prices);

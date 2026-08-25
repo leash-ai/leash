@@ -114,10 +114,10 @@ async function runDuel(duelId: number) {
   // ticks — ~90s at the default interval — before it can open a position, which
   // on a short duel means both agents report 0.00% the whole way and the tie
   // rule decides it.
-  const seeded = await warmUpStrategy(strategy);
-  console.log(seeded
-    ? `   Warmed up with ${seeded} historical price points\n`
-    : "   No price history available — starting cold\n");
+  const warm = await warmUpStrategy(strategy);
+  console.log(warm.points
+    ? `   Warmed up with ${warm.points} historical price points\n`
+    : `   Starting cold — no price history (${warm.error ?? "unknown"})\n`);
 
   let iteration = 0;
   // The value the contract has on record for us — what settlement must match.
