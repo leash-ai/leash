@@ -2,6 +2,9 @@
 node_modules/
 .env
 .env.local
+# Any .env variant, including timestamped backups — these carry SIGNING_KEYS
+.env.*
+!.env.example
 
 # Hardhat
 contracts/artifacts/
