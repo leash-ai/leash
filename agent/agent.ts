@@ -87,8 +87,24 @@ async function runDuel(duelId: number) {
   strategy.addPriceData(prices);
   console.log(`   BTC: $${prices.BTC} | ETH: $${prices.ETH} | SOL: $${prices.SOL}`);
 
-  // Get duel info
-  const duel = await contract.getDuel(duelId);
+  // Get duel info. Wait for an opponent first: while a duel is Open, DuelManager
+  // parks the raw duration in the endTime slot and joinDuel is what converts it
+  // to a timestamp. Reading it early yields 1970, so the loop below would exit on
+  // its first check and the agent would report nothing while appearing to run.
+  let duel = await contract.getDuel(duelId);
+  if (Number(duel[5]) === 0) {
+    console.log("   Waiting for an opponent to join...");
+    const giveUpAt = Date.now() + 10 * 60 * 1000;
+    while (Number(duel[5]) === 0 && Date.now() < giveUpAt) {
+      await new Promise(r => setTimeout(r, 5000));
+      duel = await contract.getDuel(duelId);
+    }
+  }
+  if (Number(duel[5]) !== 1) {
+    console.error(`   Duel ${duelId} is not active (state=${duel[5]}) — nothing to run`);
+    return;
+  }
+
   const endTime = Number(duel[4]) * 1000; // Convert to ms
 
   console.log(`   Duel ends: ${new Date(endTime).toISOString()}\n`);
@@ -124,7 +140,11 @@ async function runDuel(duelId: number) {
       console.log(`   ✓ PnL reported (${tx.hash.slice(0, 10)}...)`);
     } catch (e: unknown) {
       const err = e as Error;
-      console.error(`   ✗ PnL update failed: ${err.message}`);
+      if (Date.now() >= endTime) {
+        console.log("   🔕 Submissions closed — last reported value stands");
+      } else {
+        console.error(`   ✗ PnL update failed: ${err.message}`);
+      }
     }
 
     // Wait for next update

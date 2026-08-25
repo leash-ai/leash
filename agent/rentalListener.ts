@@ -87,7 +87,6 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
 
   const duelData = await duelContract.getDuel(duelId);
   const stake = BigInt(duelData[2]);
-  const endTime = Number(duelData[4]) * 1000;
 
   try {
     const joinTx = await duelContract.joinDuel(duelId, { value: stake, gasLimit: 500_000n });
@@ -97,6 +96,12 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
     log(`❌ Join failed: ${(e as Error).message?.slice(0, 80)}`);
     return;
   }
+
+  // Read endTime only now. While a duel is Open, DuelManager parks the raw
+  // duration in that slot and joinDuel is what turns it into a timestamp — so a
+  // pre-join read yields 1970, every loop below exits immediately, and the agent
+  // reports nothing at all while looking like it ran.
+  const endTime = Number((await duelContract.getDuel(duelId))[4]) * 1000;
 
   // Init strategy from current config
   let config = channel.getConfig();
@@ -149,7 +154,11 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
         const focus = config.focusAssets ? ` [${config.focusAssets.join("+")}]` : "";
         log(`📈 ${pnlPct}%${risk}${focus}`);
       } catch (e: unknown) {
-        log(`⚠️  PnL update failed: ${(e as Error).message?.slice(0, 60)}`);
+        if (Date.now() >= endTime) {
+          log("🔕 Submissions closed — last reported value stands");
+        } else {
+          log(`⚠️  PnL update failed: ${(e as Error).message?.slice(0, 60)}`);
+        }
       }
     } else {
       log("⏸  Paused — skipping PnL update");
@@ -191,7 +200,11 @@ async function main() {
     process.exit(1);
   }
 
-  const provider = new ethers.JsonRpcProvider(RPC);
+  // polling: true makes ethers poll eth_getLogs for events instead of installing
+  // an RPC filter. COTI's testnet RPC drops filters after a short idle, and the
+  // resulting "filter not found" kills the subscription — so a daemon left running
+  // silently stops noticing rentals.
+  const provider = new ethers.JsonRpcProvider(RPC, undefined, { polling: true });
   const wallet   = new ethers.Wallet(PRIVATE_KEY, provider);
   const marketplace = new ethers.Contract(MARKETPLACE_ADDR, MARKETPLACE_ABI, provider);
 

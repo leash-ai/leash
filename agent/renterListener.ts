@@ -34,6 +34,9 @@ const RPC              = "https://testnet.coti.io/rpc";
 const PRIVATE_KEY      = process.env.RENTER_PRIVATE_KEY!;
 const MARKETPLACE_ADDR = process.env.AGENT_MARKETPLACE_ADDRESS!;
 const DUEL_MANAGER_ADDR= process.env.DUEL_MANAGER_ADDRESS!;
+// How long to wait for the owner's agent to join before giving up on a rental.
+const JOIN_WAIT_MS = 10 * 60 * 1000;
+
 const STRATEGY         = (process.env.STRATEGY || "momentum") as "momentum" | "meanReversion" | "marketMaker";
 const UPDATE_MS        = parseInt(process.env.UPDATE_INTERVAL_MS || "30000");
 
@@ -76,24 +79,29 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
 
   log(`🔔 Rental #${rentalId} — watching duel #${duelId}`);
 
-  const duelData = await dm.getDuel(duelId);
-  const endTime  = Number(duelData[4]) * 1000;
-
-  // Duel may still be Open (waiting for owner's agent to join)
-  // Wait until it's Active (state=1) before starting
+  // The duel may still be Open, waiting for the owner's agent to join. Bound that
+  // wait on the wall clock, not on the duel's own endTime: while it is Open that
+  // slot holds the raw duration rather than a timestamp, so `endTime + 1h` reads
+  // as 1970 and the loop exits before it ever polls.
+  let duelData = await dm.getDuel(duelId);
   let state = Number(duelData[5]);
   if (state === 0) {
     log("   Waiting for agentB to join...");
-    while (state === 0 && Date.now() < endTime + 3_600_000) {
-      await new Promise(r => setTimeout(r, 10_000));
-      const d = await dm.getDuel(duelId);
-      state = Number(d[5]);
+    const giveUpAt = Date.now() + JOIN_WAIT_MS;
+    while (state === 0 && Date.now() < giveUpAt) {
+      await new Promise(r => setTimeout(r, 5_000));
+      duelData = await dm.getDuel(duelId);
+      state = Number(duelData[5]);
     }
     if (state !== 1) {
-      log("   Duel never became Active — skipping");
+      log(`   Duel never became Active after ${JOIN_WAIT_MS / 60000} min — skipping`);
       return;
     }
+    log("   Owner's agent joined");
   }
+
+  // Active now, so this really is a timestamp.
+  const endTime = Number(duelData[4]) * 1000;
 
   log(`🤖 Running '${STRATEGY}' strategy`);
   log(`   Duration: ${Math.round((endTime - Date.now()) / 60000)} min`);
@@ -121,11 +129,18 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
     try {
       const nonce = await provider.getTransactionCount(wallet.address);
       const tx = await marketplace.updateRenterPnL(rentalId, publicPnlBps, { gasLimit: 300_000n, nonce });
-      lastReportedPnlBps = publicPnlBps;
       await tx.wait();
+      // Only now. Settlement is pinned to what the chain has on record, so
+      // recording a value whose transaction later reverted would make the final
+      // submission fail the pin.
+      lastReportedPnlBps = publicPnlBps;
       log(`📈 PnL submitted: ${(publicPnlBps / 100).toFixed(2)}%`);
     } catch (e: unknown) {
-      log(`⚠️  PnL update failed: ${(e as Error).message?.slice(0, 60)}`);
+      if (Date.now() >= endTime) {
+        log("🔕 Submissions closed — last reported value stands");
+      } else {
+        log(`⚠️  PnL update failed: ${(e as Error).message?.slice(0, 60)}`);
+      }
     }
 
     const remaining = endTime - Date.now();
@@ -162,7 +177,11 @@ async function main() {
     process.exit(1);
   }
 
-  const provider    = new ethers.JsonRpcProvider(RPC);
+  // polling: true makes ethers poll eth_getLogs for events instead of installing
+  // an RPC filter. COTI's testnet RPC drops filters after a short idle, and the
+  // resulting "filter not found" kills the subscription — so a daemon left running
+  // silently stops noticing rentals.
+  const provider    = new ethers.JsonRpcProvider(RPC, undefined, { polling: true });
   const wallet      = new ethers.Wallet(PRIVATE_KEY, provider);
   const marketplace = new ethers.Contract(MARKETPLACE_ADDR, MARKETPLACE_ABI, provider);
 
