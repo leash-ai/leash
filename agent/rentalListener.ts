@@ -80,21 +80,41 @@ function makeStrategy(name: StrategyName): Strategy {
   return new MomentumStrategy(1000);
 }
 
+/** DuelManager.DuelState — Open, Active, Resolved. */
+const DuelState = { Open: 0, Active: 1, Resolved: 2 } as const;
+const duelStateName = (s: number) =>
+  s === DuelState.Open ? "open" : s === DuelState.Active ? "already running" : "resolved";
+
 async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wallet, channel: CommandChannel) {
   const provider = wallet.provider as ethers.JsonRpcProvider;
   const duelContract = new ethers.Contract(DUEL_MANAGER_ADDR, DUEL_ABI, wallet);
 
-  log(`🔔 Rental #${rentalId} — joining duel #${duelId}...`);
-
   const duelData = await duelContract.getDuel(duelId);
-  const stake = BigInt(duelData[2]);
+  const stake  = BigInt(duelData[2]);
+  const state  = Number(duelData[5]);
+  const agentB = String(duelData[1]).toLowerCase();
+  const me     = wallet.address.toLowerCase();
 
-  try {
-    const joinTx = await duelContract.joinDuel(duelId, { value: stake, gasLimit: 500_000n });
-    await joinTx.wait();
-    log(`✅ Joined duel #${duelId} with ${ethers.formatEther(stake)} COTI`);
-  } catch (e: unknown) {
-    log(`❌ Join failed: ${(e as Error).message?.slice(0, 80)}`);
+  // Decide before spending a transaction. Catch-up replays every unsettled
+  // rental in the last 1000 blocks, and most of those duels are long finished —
+  // firing joinDuel at them cost a real reverted transaction each, seven of them
+  // on one restart, and delayed the rental that actually needed playing.
+  if (state === DuelState.Open) {
+    log(`🔔 Rental #${rentalId} — joining duel #${duelId}...`);
+    try {
+      const joinTx = await duelContract.joinDuel(duelId, { value: stake, gasLimit: 500_000n });
+      await joinTx.wait();
+      log(`✅ Joined duel #${duelId} with ${ethers.formatEther(stake)} COTI`);
+    } catch (e: unknown) {
+      log(`❌ Join failed: ${(e as Error).message?.slice(0, 80)}`);
+      return;
+    }
+  } else if (state === DuelState.Active && agentB === me) {
+    // Already in it — a restart mid-duel. Pick up where we left off rather than
+    // failing a join and abandoning a duel we have staked on.
+    log(`🔔 Rental #${rentalId} — rejoining duel #${duelId} already in progress`);
+  } else {
+    log(`⏭  Rental #${rentalId} — duel #${duelId} is ${duelStateName(state)}, nothing to play`);
     return;
   }
 
