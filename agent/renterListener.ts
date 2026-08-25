@@ -27,6 +27,7 @@ import { MomentumStrategy, PriceData } from "./strategies/momentum";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
 import { MarketMakerStrategy } from "./strategies/marketMaker";
+import { warmUpStrategy } from "./strategies/warmup";
 
 dotenv.config();
 
@@ -107,6 +108,13 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
   log(`   Duration: ${Math.round((endTime - Date.now()) / 60000)} min`);
 
   const strategy = makeStrategy(STRATEGY);
+
+  // Seed with real recent prices so the strategy can act on its first tick
+  // rather than spending LOOKBACK ticks warming up inside the duel.
+  const seeded = await warmUpStrategy(strategy);
+  log(seeded ? `   Warmed up with ${seeded} historical price points`
+             : "   No price history available — starting cold");
+
   let prices = await fetchPrices();
   strategy.addPriceData(prices);
 

@@ -27,6 +27,7 @@ import dotenv from "dotenv";
 import axios from "axios";
 import { MomentumStrategy, PriceData } from "./strategies/momentum";
 import { Strategy } from "./strategies/types";
+import { warmUpStrategy } from "./strategies/warmup";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
 import { MarketMakerStrategy } from "./strategies/marketMaker";
@@ -111,7 +112,11 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
   channel.onUpdate((newConfig: AgentConfig) => {
     if (newConfig.strategy !== config.strategy) {
       log(`🔄 Rebuilding strategy: ${config.strategy} → ${newConfig.strategy}`);
-      strategy = makeStrategy(newConfig.strategy);
+      // Warm the replacement before it takes over. Swapping in a cold strategy
+      // mid-duel would stop it trading for the next LOOKBACK ticks, which is
+      // the opposite of what the owner asked for by sending the command.
+      const rebuilt = makeStrategy(newConfig.strategy);
+      void warmUpStrategy(rebuilt).then(() => { strategy = rebuilt; });
     }
     config = newConfig;
   });
@@ -119,6 +124,10 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
   log(`🤖 Running '${config.strategy}' strategy — listening for commands`);
   log(`   Duration: ${Math.round((endTime - Date.now()) / 60000)} min`);
   log(`   Send commands: ts-node messaging/sendCommand.ts <cmd> [args]`);
+
+  const seeded = await warmUpStrategy(strategy);
+  log(seeded ? `   Warmed up with ${seeded} historical price points`
+             : "   No price history available — starting cold");
 
   let prices = await fetchPrices();
   strategy.addPriceData(prices);
