@@ -20,3 +20,6 @@ agent/dist/
 
 # Command-channel cursors, written per agent wallet at runtime
 .leash-cursor-*.json
+
+# Shared price-history cache written by the strategy warm-up
+.price-history-cache.json
