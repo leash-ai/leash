@@ -16,7 +16,7 @@
  *   OWNER_AES_KEY      — your AES key (run messaging/setup.ts if you don't have one)
  *   AGENT_ADDRESS      — your agent's wallet address (the recipient)
  */
-import { createPrivateMessagingClient, sendMessage } from "@coti-io/coti-sdk-private-messaging";
+import { privateMessagingSdk } from "./sdk";
 import { Wallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
 import dotenv from "dotenv";
@@ -67,6 +67,8 @@ async function main() {
   const provider = new JsonRpcProvider(RPC);
   const wallet = new Wallet(ownerKey, provider);
   wallet.setAesKey(aesKey);
+
+  const { createPrivateMessagingClient, sendMessage } = await privateMessagingSdk();
 
   const client = createPrivateMessagingClient({
     network: "testnet",
