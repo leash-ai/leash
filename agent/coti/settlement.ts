@@ -86,26 +86,24 @@ export async function encryptFinalPnL(
 /**
  * Encrypt and submit in one step. Returns the transaction hash.
  *
- * `submitVia` lets a renter settle through AgentMarketplace, which is agentA in
- * a rented duel and proxies the call.
+ * Always goes straight to DuelManager, including for a renter whose duel is held
+ * by AgentMarketplace. It has to: MpcCore.validateCiphertext binds the input text
+ * to the immediate caller, so a ciphertext forwarded by a contract is rejected —
+ * measured on testnet, both with the input text signed for DuelManager and
+ * re-signed for the marketplace. The marketplace instead names the renter as its
+ * settlement delegate when the duel is created, and DuelManager resolves the
+ * caller to the participant it settles for.
  */
 export async function submitFinalPnL(
   wallet: CotiWallet,
   duelManagerAddress: string,
   duelId: number | bigint,
-  publicPnlBps: number,
-  submitVia?: { address: string; abi: string[]; method: string; id: number | bigint }
+  publicPnlBps: number
 ): Promise<string> {
   const encrypted = await encryptFinalPnL(wallet, duelManagerAddress, publicPnlBps);
 
-  const target = submitVia
-    ? new Contract(submitVia.address, submitVia.abi, wallet)
-    : new Contract(duelManagerAddress, DUEL_MANAGER_IFACE.fragments as any, wallet);
-
-  const method = submitVia ? submitVia.method : "submitFinalPnL";
-  const id = submitVia ? submitVia.id : duelId;
-
-  const tx = await target[method](id, encrypted, { gasLimit: 3_000_000n });
+  const duelManager = new Contract(duelManagerAddress, DUEL_MANAGER_IFACE.fragments as any, wallet);
+  const tx = await duelManager.submitFinalPnL(duelId, encrypted, { gasLimit: 3_000_000n });
   await tx.wait();
   return tx.hash;
 }
