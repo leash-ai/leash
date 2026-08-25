@@ -18,38 +18,86 @@ import { Strategy } from "./types";
 
 const COINGECKO_IDS = { BTC: "bitcoin", ETH: "ethereum", SOL: "solana" } as const;
 
+/**
+ * One request for all three assets, not one per asset.
+ *
+ * /coins/{id}/market_chart is per-coin, so seeding three assets meant three
+ * calls — and with two daemons starting together that is six, which CoinGecko's
+ * free tier throttles. The first live run got "No price history available" from
+ * exactly that. /coins/markets takes an id list and returns a 7-day hourly
+ * sparkline for each, in a single call.
+ */
+const MARKETS_URL =
+  "https://api.coingecko.com/api/v3/coins/markets" +
+  `?vs_currency=usd&ids=${Object.values(COINGECKO_IDS).join(",")}&sparkline=true`;
+
+interface MarketEntry {
+  id: string;
+  sparkline_in_7d?: { price?: number[] };
+}
+
+/** Cached per process: a rebuilt strategy reuses it instead of re-requesting. */
+let cached: Promise<PriceData[]> | undefined;
+
+/**
+ * Retry on a throttled response.
+ *
+ * CoinGecko's free tier rate-limits, and the owner's daemon and the renter's
+ * start within a second of each other in separate processes — the in-process
+ * cache cannot help across that. One of the two reliably got a 429 and started
+ * cold. A couple of spaced retries clears it.
+ */
+async function fetchWithRetry(url: string, attempts = 3): Promise<Response> {
+  let last: Error | undefined;
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1500 * i + Math.random() * 700));
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) return res;
+      last = new Error(`CoinGecko ${res.status}`);
+      if (res.status !== 429 && res.status < 500) break; // not worth retrying
+    } catch (e) {
+      last = e as Error;
+    }
+  }
+  throw last ?? new Error("CoinGecko unreachable");
+}
+
+async function loadHistory(): Promise<PriceData[]> {
+  const res = await fetchWithRetry(MARKETS_URL);
+  const body = (await res.json()) as MarketEntry[];
+  if (!Array.isArray(body)) throw new Error("unexpected CoinGecko response");
+
+  const series: Record<string, number[]> = {};
+  for (const [symbol, id] of Object.entries(COINGECKO_IDS)) {
+    const prices = body.find((e) => e.id === id)?.sparkline_in_7d?.price;
+    if (!prices?.length) throw new Error(`no sparkline for ${id}`);
+    series[symbol] = prices;
+  }
+
+  // Hourly points, same cadence and length for each asset, oldest first.
+  const available = Math.min(...Object.values(series).map((s) => s.length));
+  const now = Date.now();
+  const out: PriceData[] = [];
+  for (let i = 0; i < available; i++) {
+    out.push({
+      BTC: series.BTC[i],
+      ETH: series.ETH[i],
+      SOL: series.SOL[i],
+      timestamp: now - (available - 1 - i) * 3_600_000,
+    });
+  }
+  return out;
+}
+
 /** Recent price points, oldest first. Empty if history is unavailable. */
 export async function fetchPriceHistory(points: number): Promise<PriceData[]> {
   try {
-    const series: Record<string, [number, number][]> = {};
-
-    for (const [symbol, id] of Object.entries(COINGECKO_IDS)) {
-      const url =
-        `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
-        `?vs_currency=usd&days=1&interval=hourly`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) throw new Error(`CoinGecko ${res.status} for ${id}`);
-      const body = (await res.json()) as { prices?: [number, number][] };
-      if (!body.prices?.length) throw new Error(`no price series for ${id}`);
-      series[symbol] = body.prices;
-    }
-
-    // Line the three series up on their last `points` samples. They come back
-    // the same length and cadence, so index alignment is enough here.
-    const available = Math.min(...Object.values(series).map((s) => s.length));
-    const take = Math.min(points, available);
-    const out: PriceData[] = [];
-
-    for (let i = available - take; i < available; i++) {
-      out.push({
-        BTC: series.BTC[i][1],
-        ETH: series.ETH[i][1],
-        SOL: series.SOL[i][1],
-        timestamp: series.BTC[i][0],
-      });
-    }
-    return out;
+    cached ??= loadHistory();
+    const all = await cached;
+    return all.slice(-points);
   } catch {
+    cached = undefined; // let a later attempt retry rather than caching a failure
     return [];
   }
 }
