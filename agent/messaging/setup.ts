@@ -14,7 +14,7 @@
  * Usage:
  *   ts-node messaging/setup.ts
  *   ts-node messaging/setup.ts agent    (generates for AGENT_PRIVATE_KEY)
- *   ts-node messaging/setup.ts owner    (generates for SIGNING_KEYS[0])
+ *   ts-node messaging/setup.ts owner    (generates for OWNER_PRIVATE_KEY)
  *   ts-node messaging/setup.ts renter   (generates for RENTER_PRIVATE_KEY)
  */
 import { Wallet } from "@coti-io/coti-ethers";
@@ -72,9 +72,9 @@ async function main() {
   }
 
   if (mode === "owner" || mode === "both") {
-    const ownerKey = process.env.SIGNING_KEYS?.split(",")[0];
+    const ownerKey = process.env.OWNER_PRIVATE_KEY;
     if (!ownerKey) {
-      console.log("⚠️  SIGNING_KEYS not set — skipping owner key generation");
+      console.log("⚠️  OWNER_PRIVATE_KEY not set — skipping owner key generation");
     } else {
       const aesKey = await deriveAesKey(ownerKey);
       updateEnv("OWNER_AES_KEY", aesKey);
