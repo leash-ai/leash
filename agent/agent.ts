@@ -15,6 +15,7 @@ import { MomentumStrategy, PriceData } from "./strategies/momentum";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
 import { MarketMakerStrategy } from "./strategies/marketMaker";
 import { Strategy } from "./strategies/types";
+import { warmUpStrategy } from "./strategies/warmup";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
 
 dotenv.config();
@@ -108,6 +109,15 @@ async function runDuel(duelId: number) {
   const endTime = Number(duel[4]) * 1000; // Convert to ms
 
   console.log(`   Duel ends: ${new Date(endTime).toISOString()}\n`);
+
+  // Seed the strategy with real recent prices. Cold, momentum needs LOOKBACK=3
+  // ticks — ~90s at the default interval — before it can open a position, which
+  // on a short duel means both agents report 0.00% the whole way and the tie
+  // rule decides it.
+  const seeded = await warmUpStrategy(strategy);
+  console.log(seeded
+    ? `   Warmed up with ${seeded} historical price points\n`
+    : "   No price history available — starting cold\n");
 
   let iteration = 0;
   // The value the contract has on record for us — what settlement must match.
