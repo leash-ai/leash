@@ -13,6 +13,8 @@
  * copies of the current price would not: every return would be zero and momentum
  * would still see no signal.
  */
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { PriceData } from "./momentum";
 import { Strategy } from "./types";
 
@@ -40,6 +42,38 @@ interface MarketEntry {
 let cached: Promise<PriceData[]> | undefined;
 
 /**
+ * Cached on disk too, because the per-process cache does not help across
+ * processes and that is exactly where this failed. The owner's daemon and the
+ * renter's start together, both ask CoinGecko, and the free tier answers one of
+ * them with a 429 whose window is far longer than any backoff worth waiting
+ * through — the second daemon reliably started cold.
+ *
+ * The data is hourly, so a shared file good for 30 minutes costs nothing in
+ * freshness and means one fetch per machine rather than one per process.
+ */
+const CACHE_FILE = join(__dirname, "..", ".price-history-cache.json");
+const CACHE_TTL_MS = 30 * 60 * 1000;
+
+function readCacheFile(): PriceData[] | null {
+  try {
+    const raw = JSON.parse(readFileSync(CACHE_FILE, "utf8")) as { fetchedAt: number; points: PriceData[] };
+    if (!raw?.points?.length) return null;
+    if (Date.now() - raw.fetchedAt > CACHE_TTL_MS) return null;
+    return raw.points;
+  } catch {
+    return null; // absent, unreadable or malformed — just refetch
+  }
+}
+
+function writeCacheFile(points: PriceData[]): void {
+  try {
+    writeFileSync(CACHE_FILE, JSON.stringify({ fetchedAt: Date.now(), points }));
+  } catch {
+    // a read-only checkout is not a reason to fail a warm-up
+  }
+}
+
+/**
  * Retry on a throttled response.
  *
  * CoinGecko's free tier rate-limits, and the owner's daemon and the renter's
@@ -47,10 +81,14 @@ let cached: Promise<PriceData[]> | undefined;
  * cache cannot help across that. One of the two reliably got a 429 and started
  * cold. A couple of spaced retries clears it.
  */
-async function fetchWithRetry(url: string, attempts = 3): Promise<Response> {
+async function fetchWithRetry(url: string, attempts = 3): Promise<Response | null> {
   let last: Error | undefined;
   for (let i = 0; i < attempts; i++) {
-    if (i > 0) await new Promise((r) => setTimeout(r, 1500 * i + Math.random() * 700));
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, 1500 * i + Math.random() * 700));
+      // The other daemon may have won the race and written the file by now.
+      if (readCacheFile()) return null;
+    }
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (res.ok) return res;
@@ -64,7 +102,15 @@ async function fetchWithRetry(url: string, attempts = 3): Promise<Response> {
 }
 
 async function loadHistory(): Promise<PriceData[]> {
+  const shared = readCacheFile();
+  if (shared) return shared;
+
   const res = await fetchWithRetry(MARKETS_URL);
+  if (res === null) {
+    const written = readCacheFile();
+    if (written) return written;
+    throw new Error("CoinGecko rate limited and no shared cache");
+  }
   const body = (await res.json()) as MarketEntry[];
   if (!Array.isArray(body)) throw new Error("unexpected CoinGecko response");
 
@@ -87,6 +133,7 @@ async function loadHistory(): Promise<PriceData[]> {
       timestamp: now - (available - 1 - i) * 3_600_000,
     });
   }
+  writeCacheFile(out);
   return out;
 }
 
