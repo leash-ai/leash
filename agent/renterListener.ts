@@ -111,9 +111,9 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
 
   // Seed with real recent prices so the strategy can act on its first tick
   // rather than spending LOOKBACK ticks warming up inside the duel.
-  const seeded = await warmUpStrategy(strategy);
-  log(seeded ? `   Warmed up with ${seeded} historical price points`
-             : "   No price history available — starting cold");
+  const warm = await warmUpStrategy(strategy);
+  log(warm.points ? `   Warmed up with ${warm.points} historical price points`
+                  : `   Starting cold — no price history (${warm.error ?? "unknown"})`);
 
   let prices = await fetchPrices();
   strategy.addPriceData(prices);

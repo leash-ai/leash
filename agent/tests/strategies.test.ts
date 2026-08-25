@@ -101,8 +101,9 @@ test("warm-up degrades to a cold start when history is unavailable", async () =>
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async () => { throw new Error("network down"); }) as typeof fetch;
   try {
-    const seeded = await warmUpStrategy(new MomentumStrategy(1000), 5);
-    assert.equal(seeded, 0, "an unreachable price API must not throw, just seed nothing");
+    const warm = await warmUpStrategy(new MomentumStrategy(1000), 5);
+    assert.equal(warm.points, 0, "an unreachable price API must not throw, just seed nothing");
+    assert.ok(warm.error, "and it must say why, or a rate limit is indistinguishable from a cold start");
   } finally {
     globalThis.fetch = realFetch;
   }

@@ -90,27 +90,33 @@ async function loadHistory(): Promise<PriceData[]> {
   return out;
 }
 
-/** Recent price points, oldest first. Empty if history is unavailable. */
-export async function fetchPriceHistory(points: number): Promise<PriceData[]> {
+/** Recent price points, oldest first, plus why there are none if there are none. */
+export async function fetchPriceHistory(
+  points: number,
+): Promise<{ history: PriceData[]; error?: string }> {
   try {
     cached ??= loadHistory();
     const all = await cached;
-    return all.slice(-points);
-  } catch {
+    return { history: all.slice(-points) };
+  } catch (e) {
     cached = undefined; // let a later attempt retry rather than caching a failure
-    return [];
+    return { history: [], error: (e as Error).message };
   }
 }
 
 /**
  * Feed a strategy enough history to trade on its first tick.
  *
- * Best effort: if CoinGecko is unreachable the strategy simply starts cold, the
- * way it did before. Returns how many points were seeded so the caller can say
- * so in its log rather than leaving the operator guessing.
+ * Best effort: if the price API is unreachable the strategy starts cold, the way
+ * it did before. Returns the count and, on failure, the reason — a warm-up that
+ * silently reports zero is indistinguishable from one that was never attempted,
+ * and that ambiguity cost real time diagnosing a rate limit.
  */
-export async function warmUpStrategy(strategy: Strategy, points = 5): Promise<number> {
-  const history = await fetchPriceHistory(points);
+export async function warmUpStrategy(
+  strategy: Strategy,
+  points = 5,
+): Promise<{ points: number; error?: string }> {
+  const { history, error } = await fetchPriceHistory(points);
   for (const point of history) strategy.addPriceData(point);
-  return history.length;
+  return { points: history.length, error };
 }
