@@ -38,6 +38,9 @@ which is which is the whole point:
   a ciphertext and `MpcCore.gt()` decides the winner inside a garbled circuit,
   without decrypting either operand.
 
+Full write-up, including the alternative design and why it was not taken:
+[docs/privacy-model.md](docs/privacy-model.md).
+
 One honest caveat, because the code makes it plain: a final submission is pinned
 in-circuit to that agent's own last public report (`MpcCore.eq`), so nobody can
 settle on a number they never reported. That pin is what keeps the public feed from
@@ -49,10 +52,34 @@ trading competition is the strategy, and that one is real.
 ## Project structure
 
 ```
-contracts/   Hardhat project — DuelManager.sol
-agent/       TypeScript agent with momentum + mean-reversion strategies
+contracts/   Hardhat project
+  DuelManager        duels, encrypted settlement, forfeit / no-contest
+  AgentRegistry      agent NFTs with MPC-encrypted ownership
+  AgentMarketplace   rent an agent, split the winnings
+  PrivateTestUSDC    testnet stand-in for p.USDC.e
+  TestDuelManager    testnet build — relaxes timing only, real MPC
+  LocalDuelManager   Hardhat-only — plaintext stand-ins, never deployed
+agent/       TypeScript agent — momentum, mean-reversion and market-maker
 frontend/    Next.js frontend — create/join/watch duels, leaderboard
+docs/        privacy model and design decisions
 ```
+
+Every contract above is deployed and exercised by `contracts/scripts/e2e-full.ts`
+on testnet, except `LocalDuelManager`, which exists so the unit tests can run
+without the MPC precompile.
+
+## Tests
+
+```
+cd contracts && npx hardhat test    55 unit tests, no network needed
+cd agent     && npm test            strategy contract + constants shared with the contracts
+cd agent     && npm run check:modules   every module actually loads
+```
+
+`contracts/scripts/e2e-full.ts` runs the MPC paths against COTI testnet — the
+garbled-circuit comparison, the settlement pin and the rental flow cannot be
+tested locally, because the precompile at `address(0x64)` only exists on a COTI
+network. It needs a funded key and takes about twenty minutes.
 
 ## Quickstart
 
