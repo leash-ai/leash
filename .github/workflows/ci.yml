@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Everything here runs without network access to COTI and without secrets.
+# The MPC-dependent paths cannot be covered this way — they need the precompile
+# at address(0x64), which only exists on a COTI network. Those are covered by
+# contracts/scripts/e2e-full.ts, run by hand against testnet before a release.
+jobs:
+  contracts:
+    name: contracts — compile + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+      - run: npm ci
+        working-directory: contracts
+      - run: npx hardhat compile --force
+        working-directory: contracts
+      - run: npx hardhat test
+        working-directory: contracts
+
+  agent:
+    name: agent — typecheck + module load
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agent/package-lock.json
+      - run: npm ci
+        working-directory: agent
+      - run: npx tsc --noEmit
+        working-directory: agent
+
+      # tsc is not enough on its own. @coti-io/coti-sdk-private-messaging is
+      # ESM-only but exposes a top-level "types" field, so a broken import
+      # typechecks cleanly and then throws ERR_PACKAGE_PATH_NOT_EXPORTED the
+      # moment a daemon starts. This loads the modules for real.
+      - run: npm run check:modules
+        working-directory: agent
+
+      # Strategy contract, the PnL encoding the on-chain pin depends on, and the
+      # constants shared with DuelManager. The agent and the contracts agree by
+      # convention, not through a shared artifact, so drift there does not fail to
+      # compile — it reverts at settlement, inside a catch that logs a forfeit.
+      - run: npm test
+        working-directory: agent
+
+      # Runtime deps must be declared as such: `npm ci --omit=dev` is what a
+      # deployment does, and express/cors/ws/mistralai once sat in devDependencies.
+      - run: |
+          rm -rf node_modules
+          npm ci --omit=dev
+          node -e "require('express');require('cors');require('ws');require('@mistralai/mistralai');console.log('runtime deps resolve')"
+        working-directory: agent
+
+  frontend:
+    name: frontend — typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
