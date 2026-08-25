@@ -16,7 +16,7 @@
  *   { "cmd": "pause"   }  — stop submitting PnL updates
  *   { "cmd": "resume"  }  — resume PnL updates
  */
-import { createPrivateMessagingClient, listInbox } from "@coti-io/coti-sdk-private-messaging";
+import { privateMessagingSdk } from "./sdk";
 import { Wallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
 import * as fs from "fs";
@@ -134,6 +134,8 @@ export class CommandChannel {
   }
 
   private async checkInbox() {
+    const { createPrivateMessagingClient, listInbox } = await privateMessagingSdk();
+
     const client = createPrivateMessagingClient({
       network: "testnet",
       runner: this.wallet,
