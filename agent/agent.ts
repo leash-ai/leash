@@ -10,10 +10,9 @@
 
 import dotenv from "dotenv";
 import { ethers } from "ethers";
-import axios from "axios";
-import { MomentumStrategy, PriceData } from "./strategies/momentum";
-import { MeanReversionStrategy } from "./strategies/meanReversion";
-import { MarketMakerStrategy } from "./strategies/marketMaker";
+import { PriceData } from "./strategies/momentum";
+import { makeStrategy } from "./strategies/factory";
+import { fetchPrices } from "./marketData";
 import { Strategy } from "./strategies/types";
 import { warmUpStrategy } from "./strategies/warmup";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
@@ -45,24 +44,6 @@ const DUEL_MANAGER_ABI = [
 
 // ─── Price Oracle ──────────────────────────────────────────────────────────────
 
-async function fetchPrices(): Promise<PriceData> {
-  try {
-    const response = await axios.get(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd",
-      { timeout: 5000 }
-    );
-    return {
-      BTC: response.data.bitcoin.usd,
-      ETH: response.data.ethereum.usd,
-      SOL: response.data.solana.usd,
-      timestamp: Date.now(),
-    };
-  } catch {
-    // Fallback prices for demo/testing
-    console.warn("Price fetch failed, using fallback prices");
-    return { BTC: 65000, ETH: 3500, SOL: 150, timestamp: Date.now() };
-  }
-}
 
 // ─── Agent Loop ────────────────────────────────────────────────────────────────
 
@@ -71,12 +52,7 @@ async function runDuel(duelId: number) {
   const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
   const contract = new ethers.Contract(DUEL_MANAGER_ADDRESS, DUEL_MANAGER_ABI, wallet);
 
-  const strategy: Strategy =
-    STRATEGY === "momentum"
-      ? new MomentumStrategy(1000)
-      : STRATEGY === "meanReversion"
-      ? new MeanReversionStrategy()
-      : new MarketMakerStrategy();
+  const strategy: Strategy = makeStrategy(STRATEGY);
 
   console.log(`\n🤖 Leash Agent starting`);
   console.log(`   Address  : ${wallet.address}`);

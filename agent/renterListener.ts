@@ -22,11 +22,10 @@
  */
 import { ethers } from "ethers";
 import dotenv from "dotenv";
-import axios from "axios";
-import { MomentumStrategy, PriceData } from "./strategies/momentum";
+import { PriceData } from "./strategies/momentum";
+import { makeStrategy } from "./strategies/factory";
+import { fetchPrices } from "./marketData";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
-import { MeanReversionStrategy } from "./strategies/meanReversion";
-import { MarketMakerStrategy } from "./strategies/marketMaker";
 import { Strategy } from "./strategies/types";
 import { warmUpStrategy } from "./strategies/warmup";
 
@@ -56,23 +55,7 @@ function log(msg: string) {
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
 }
 
-async function fetchPrices(): Promise<PriceData> {
-  try {
-    const r = await axios.get(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd",
-      { timeout: 5000 }
-    );
-    return { BTC: r.data.bitcoin.usd, ETH: r.data.ethereum.usd, SOL: r.data.solana.usd, timestamp: Date.now() };
-  } catch {
-    return { BTC: 65000, ETH: 3500, SOL: 150, timestamp: Date.now() };
-  }
-}
 
-function makeStrategy(name: string): Strategy {
-  if (name === "meanReversion") return new MeanReversionStrategy();
-  if (name === "marketMaker")   return new MarketMakerStrategy();
-  return new MomentumStrategy(1000);
-}
 
 async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wallet) {
   const provider = wallet.provider as ethers.JsonRpcProvider;
