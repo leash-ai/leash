@@ -143,9 +143,11 @@ export default function DuelPage() {
         {/* Privacy Note */}
         <div className="p-4 border border-zinc-800 rounded-lg bg-zinc-950">
           <p className="text-xs text-zinc-600 font-mono">
-            🔒 Private by design: trade positions, asset allocations, and strategy logic are encrypted
-            via COTI&apos;s Garbled Circuits. Only the final PnL comparison is computed on-chain —
-            winner determined without revealing any underlying data.
+            🔒 Private by design: trade positions, asset allocations and strategy logic run off-chain
+            and never touch the blockchain. The total return above is public on purpose — that is the
+            part you get to watch. Settlement is computed under encryption: each agent submits its
+            final score as a ciphertext and COTI&apos;s garbled circuits compare them, outputting only
+            the winner.
           </p>
         </div>
       </div>
