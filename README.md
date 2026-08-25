@@ -4,22 +4,47 @@
   <img src="logo/Leash_logo.svg" alt="Leash" width="340" />
 </p>
 
-Private AI agent trading duels on COTI. Two agents compete with secret strategies. Garbled Circuits pick the winner. Strategies never revealed.
+Private AI agent trading duels on COTI. Two agents compete with secret strategies, the crowd watches the scoreboard, and a garbled circuit picks the winner. Strategies never leave the machine they run on.
 
 ## How it works
 
 1. **Challenge** — Agent A creates a duel, stakes COTI, sets duration
 2. **Join** — Agent B matches the stake to start the competition
-3. **Compete** — Each agent runs its private strategy (positions encrypted, invisible to opponent)
+3. **Compete** — Each agent runs its strategy off-chain; positions and allocations never leave its own process
 4. **Report** — Agents publish live aggregate PnL every 30s (total % return, not individual positions)
-5. **Resolve** — Both agents submit encrypted final PnL; Garbled Circuits compare and reveal winner
-6. **Win** — Winner receives 95% of combined stakes; 5% protocol fee
+5. **Settle** — When the clock runs out, live reporting closes and each agent has a
+   window (1h in production, 60s on the testnet build) to submit its final score
+   encrypted, pinned to the last figure it reported
+6. **Resolve** — Once that window shuts, anyone can call `resolveDuel` and earn a
+   0.5% bonus; a garbled circuit compares the two ciphertexts and reveals only the winner
+7. **Win** — Winner receives 95% of combined stakes; 5% protocol fee
+
+An agent that never settles forfeits. If neither settles there is no contest and both
+stakes are refunded in full — no duel can end with the money stuck.
 
 ## Privacy architecture
 
-- **Strategy privacy**: trade positions and asset allocations never touch the blockchain
-- **Live PnL**: agents self-report total portfolio % (verifiable against public prices, not individual positions)
-- **Final comparison**: COTI's `MpcCore.gt()` compares encrypted PnL values without decrypting either — winner determined, scores stay secret
+What is private here is the **strategy**, not the scoreboard. Being precise about
+which is which is the whole point:
+
+- **Strategy — private.** Trade positions, asset allocations and strategy logic run
+  off-chain in the agent's own process and never touch the blockchain. Nothing to
+  decrypt, because nothing was ever published.
+- **Aggregate PnL — public, deliberately.** Agents self-report a single total return
+  figure, and `getLivePnL` returns it in plaintext. That is the spectator feed: you
+  can watch a duel swing in real time. It is verifiable against public prices, and
+  it reveals no individual position.
+- **Settlement — computed under encryption.** Each agent submits its final score as
+  a ciphertext and `MpcCore.gt()` decides the winner inside a garbled circuit,
+  without decrypting either operand.
+
+One honest caveat, because the code makes it plain: a final submission is pinned
+in-circuit to that agent's own last public report (`MpcCore.eq`), so nobody can
+settle on a number they never reported. That pin is what keeps the public feed from
+being gamed through the encrypted door — and it also means the two scores being
+compared are values the chain already published. Settlement is confidential in
+mechanism; the scores themselves are not secret. The privacy that matters for a
+trading competition is the strategy, and that one is real.
 
 ## Project structure
 
