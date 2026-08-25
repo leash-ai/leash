@@ -7,7 +7,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 /**
  * DuelManager tests — runs on local Hardhat network.
  * DuelManager holds no MPC calls, so all of it is unit-testable here. Contracts
- * that do (AgentRegistry, AgentMarketplace, Tournament/LeagueManager) need the
+ * that do (AgentRegistry, AgentMarketplace) need the
  * COTI precompile and are covered by the scripts/e2e-*.ts testnet suites.
  */
 describe("DuelManager", function () {
