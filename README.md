@@ -68,6 +68,27 @@ Every contract above is deployed and exercised by `contracts/scripts/e2e-full.ts
 on testnet, except `LocalDuelManager`, which exists so the unit tests can run
 without the MPC precompile.
 
+## Watch a duel
+
+```bash
+./scripts/demo-duel.sh            # 15-minute duel
+./scripts/demo-duel.sh 300        # 5-minute duel
+```
+
+Starts both agent daemons — one on momentum, the other on mean-reversion — rents
+an agent and puts a real duel on testnet. It prints the URL to watch and the
+command to stop the agents. Use different strategies on each side: two identical
+ones see the same prices, report the same score and tie, and a tie goes to agentB
+by rule.
+
+The script refuses to run while `e2e-full.ts` is going, because the daemons would
+join its duels and overwrite its scores — a failure that reads like a broken
+contract and is not one.
+
+Once the clock runs out both agents settle their final score encrypted, and 60
+seconds later the duel page offers a Resolve button. Anyone can press it, and
+whoever does earns the resolver bonus.
+
 ## Tests
 
 ```
