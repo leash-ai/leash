@@ -41,7 +41,6 @@ const MARKETPLACE_ABI = [
   "event AgentRented(uint256 indexed rentalId, uint256 indexed duelId, address indexed renter)",
   "function rentals(uint256) view returns (uint256,uint256,uint256,address,address,uint256,uint256,uint256,bool)",
   "function updateRenterPnL(uint256 rentalId, int256 pnlBps)",
-  "function submitRenterFinalPnL(uint256 rentalId, (uint256 ciphertext, bytes signature) encryptedPnL)",
 ];
 
 const DUEL_ABI = [
@@ -136,21 +135,20 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
 
   log(`⏱  Duel #${duelId} ended`);
 
-  // Settle through the marketplace: it is agentA in a rented duel, so the renter
-  // cannot call DuelManager.submitFinalPnL directly. The ciphertext is still
-  // encrypted with the renter's own key and pinned to the last reported value.
+  // Settle straight on DuelManager. The marketplace holds agentA's side, but it
+  // cannot forward our ciphertext — the precompile binds an input text to the
+  // immediate caller — so it named us its settlement delegate when the duel was
+  // created, and DuelManager resolves us to agentA. The value is still pinned to
+  // the last figure we actually reported.
   if (lastReportedPnlBps === null) {
     log("⚠️  Nothing reported on-chain — no score to settle, duel will refund");
     return;
   }
 
-  log(`   Settling encrypted ${(lastReportedPnlBps / 100).toFixed(2)}% via marketplace…`);
+  log(`   Settling encrypted ${(lastReportedPnlBps / 100).toFixed(2)}% as agentA's delegate…`);
   try {
     const signer = await cotiWallet(PRIVATE_KEY, provider, process.env.RENTER_AES_KEY);
-    const hash = await submitFinalPnL(
-      signer, DUEL_MANAGER_ADDR, duelId, lastReportedPnlBps,
-      { address: MARKETPLACE_ADDR, abi: MARKETPLACE_ABI, method: "submitRenterFinalPnL", id: rentalId }
-    );
+    const hash = await submitFinalPnL(signer, DUEL_MANAGER_ADDR, duelId, lastReportedPnlBps);
     log(`✅ Settled — ${hash.slice(0, 12)}…`);
   } catch (e: unknown) {
     log(`❌ Settlement failed, renter forfeits: ${(e as Error).message?.slice(0, 70)}`);
