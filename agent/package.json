@@ -1,13 +1,16 @@
 {
   "name": "leash-agent",
   "version": "1.0.0",
-  "description": "Leash AI agent — competes in private trading duels on COTI",
+  "description": "Leash AI agent \u2014 competes in private trading duels on COTI",
   "scripts": {
     "start": "ts-node src/server.ts",
     "dev": "ts-node-dev --respawn src/server.ts",
     "duel:create": "ts-node agent.ts create",
     "duel:join": "ts-node agent.ts join",
-    "duel:run": "ts-node agent.ts run"
+    "duel:run": "ts-node agent.ts run",
+    "test": "node --test --require ts-node/register tests/*.test.ts",
+    "check:types": "tsc --noEmit",
+    "check:modules": "ts-node scripts/check-modules.ts"
   },
   "dependencies": {
     "@coti-io/coti-ethers": "^1.0.5",
