@@ -9,6 +9,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { MomentumStrategy, PriceData } from "../strategies/momentum";
 import { MeanReversionStrategy } from "../strategies/meanReversion";
@@ -99,6 +101,11 @@ test("reported PnL stays inside the bounds updateLivePnL enforces", () => {
 
 test("warm-up degrades to a cold start when history is unavailable", async () => {
   const realFetch = globalThis.fetch;
+  const realCache = process.env.LEASH_PRICE_CACHE;
+  // Point the shared cache at nothing. Otherwise a warm cache on the machine
+  // answers before the stubbed fetch can, and this passes in CI while failing
+  // locally — which is how it was found.
+  process.env.LEASH_PRICE_CACHE = join(tmpdir(), "leash-test-cache-does-not-exist.json");
   globalThis.fetch = (async () => { throw new Error("network down"); }) as typeof fetch;
   try {
     const warm = await warmUpStrategy(new MomentumStrategy(1000), 5);
@@ -106,5 +113,7 @@ test("warm-up degrades to a cold start when history is unavailable", async () =>
     assert.ok(warm.error, "and it must say why, or a rate limit is indistinguishable from a cold start");
   } finally {
     globalThis.fetch = realFetch;
+    if (realCache === undefined) delete process.env.LEASH_PRICE_CACHE;
+    else process.env.LEASH_PRICE_CACHE = realCache;
   }
 });
