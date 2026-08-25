@@ -17,6 +17,8 @@
  *   { "cmd": "resume"  }  — resume PnL updates
  */
 import { privateMessagingSdk } from "./sdk";
+// Type-only, so it is erased at compile time and never hits the ESM runtime issue.
+import type { ReadMessageResult } from "@coti-io/coti-sdk-private-messaging";
 import { Wallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
 import * as fs from "fs";
@@ -154,16 +156,21 @@ export class CommandChannel {
 
     if (!result.messages || result.messages.length === 0) return;
 
-    for (const msg of result.messages) {
+    // listInbox returns ReadMessageResult[] — { message, chunks, plaintext } — so
+    // the sender lives on entry.message.from, one level in. Reading entry.from
+    // yields undefined and drops every command as unauthorised; the `as any`
+    // casts that used to be here hid exactly that.
+    for (const entry of result.messages as ReadMessageResult[]) {
       this.processedCount++;
 
       // Security: only apply commands from the authorised owner
-      if ((msg as any).from?.toLowerCase() !== this.ownerAddress) {
-        log(`🚫 Dropped message from unknown sender: ${(msg as any).from?.slice(0, 10)}`);
+      const sender = entry.message?.from;
+      if (sender?.toLowerCase() !== this.ownerAddress) {
+        log(`🚫 Dropped message from unknown sender: ${sender?.slice(0, 10) ?? "unknown"}`);
         continue;
       }
 
-      const raw = (msg as any).plaintext?.trim();
+      const raw = entry.plaintext?.trim();
       if (!raw) continue;
 
       try {

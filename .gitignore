@@ -17,3 +17,6 @@ frontend/out/
 
 # Agent build
 agent/dist/
+
+# Command-channel cursors, written per agent wallet at runtime
+.leash-cursor-*.json
