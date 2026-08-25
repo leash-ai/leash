@@ -78,11 +78,64 @@ function log(tag: string, msg: string) {
 
 async function sleep(ms: number) { await new Promise(r => setTimeout(r, ms)); }
 
+/**
+ * Send and wait, telling COTI's spurious reverts apart from real ones.
+ *
+ * The testnet RPC intermittently returns a receipt with status=0 and no logs for
+ * a transaction whose state change did land. It is not tied to any particular
+ * call — across runs it has hit joinDuel, submitFinalPnL and updateLivePnL — so
+ * it is handled here rather than at each of the thirty-odd call sites.
+ *
+ * The test is to replay the call against the state of the block before it was
+ * mined. A real revert reverts again, and the replay gives the reason, which the
+ * receipt never carries — every failure in this script used to print
+ * `reason: null`. A spurious one replays clean, and the receipt was lying.
+ *
+ * When it was lying the logs are missing too, so they are read back from the
+ * block. Callers that pull an id out of an event keep working.
+ *
+ * Limitation worth knowing: the replay reads state, so it assumes this script is
+ * the only thing writing to these contracts. If an agent daemon is running
+ * against the same deployment it will join duels and settle them out from under
+ * the run, and a real "Already submitted" revert can replay clean because the
+ * daemon's write landed in between. Kill any listeners before running this.
+ */
 async function send(label: string, fn: (...a: any[]) => Promise<any>, args: any[], opts: any = {}) {
   const tx = await fn(...args, { gasLimit: 2_000_000n, ...opts });
-  const rc = await tx.wait();
-  log("TX", `${label}: ${rc?.hash?.slice(0, 14)}…`);
-  return rc;
+  try {
+    const rc = await tx.wait();
+    log("TX", `${label}: ${rc?.hash?.slice(0, 14)}…`);
+    return rc;
+  } catch (e: any) {
+    const rc = e?.receipt;
+    if (!rc || rc.status !== 0) throw e;
+
+    let revertReason: string | null = null;
+    try {
+      await provider.call({
+        to: tx.to, from: tx.from, data: tx.data, value: tx.value,
+        blockTag: rc.blockNumber - 1,
+      });
+    } catch (sim: any) {
+      revertReason = sim?.reason || sim?.shortMessage || "reverted";
+    }
+
+    if (revertReason) {
+      // Not necessarily a problem: scenarios J and K revert on purpose. The
+      // caller decides — this only makes the reason visible, which the receipt
+      // never carries.
+      log("REVERT", `${label}: ${revertReason}`);
+      throw e;
+    }
+
+    let logs = rc.logs ?? [];
+    if (logs.length === 0) {
+      const blockLogs = await provider.getLogs({ fromBlock: rc.blockNumber, toBlock: rc.blockNumber });
+      logs = blockLogs.filter((l: any) => l.transactionHash === rc.hash);
+    }
+    log("WARN", `${label}: status=0 but the call replays clean — COTI quirk, ${logs.length} log(s) recovered`);
+    return { hash: rc.hash, blockNumber: rc.blockNumber, gasUsed: rc.gasUsed, gasPrice: rc.gasPrice, status: 1, logs } as any;
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -133,16 +186,44 @@ async function main() {
    * assumed. The owner is agentB and settles for itself; the renter settles for
    * agentA (the marketplace) as the delegate rentAndDuel named.
    */
+  // Both go through sendCoti, not send. COTI testnet intermittently returns
+  // status=0 on a transaction whose state change did land — settlement is an
+  // MPC-heavy call and hits it. Without the on-chain verify, a run dies on a
+  // settlement that actually succeeded, which is exactly what it looks like when
+  // the pin is genuinely rejecting a score. The verify tells the two apart.
+  /**
+   * Resolution logs, from the receipt when there is one and from the chain when
+   * there is not. sendCoti returns null on the false-revert path — the state
+   * change landed, the receipt claimed status=0 — and the checks below read
+   * events out of that receipt. Without this, tolerating the quirk in one place
+   * just moves the failure to the next line.
+   *
+   * DuelResolved, DuelNoContest and DuelForfeited all index duelId first.
+   */
+  async function resolutionLogs(rc: any, duelId: bigint): Promise<any[]> {
+    if (rc?.logs) return rc.logs;
+    const latest = await provider.getBlockNumber();
+    const logs = await provider.getLogs({
+      address: DM_ADDR,
+      fromBlock: Math.max(0, latest - 200),
+      toBlock: latest,
+    });
+    const idTopic = ethers.zeroPadValue(ethers.toBeHex(duelId), 32);
+    return logs.filter((l) => l.topics[1] === idTopic);
+  }
+
   async function settleOwner(duelId: bigint, pnlBps: number) {
     const enc = await encryptScore(ownerCoti, pnlBps);
     const dmSigned = new ethers.Contract(DM_ADDR, artifact("TestDuelManager").abi, ownerCoti);
-    await send("SETTLE-B", dmSigned.submitFinalPnL, [duelId, enc], { gasLimit: 3_000_000n });
+    await sendCoti("SETTLE-B", dmSigned.submitFinalPnL, [duelId, enc], { gasLimit: 3_000_000n },
+      async () => (await dm.getFinalPnLStatus(duelId))[1] as boolean);
   }
 
   async function settleRenter(duelId: bigint, pnlBps: number) {
     const enc = await encryptScore(renterCoti, pnlBps);
     const dmSigned = new ethers.Contract(DM_ADDR, artifact("TestDuelManager").abi, renterCoti);
-    await send("SETTLE-A", dmSigned.submitFinalPnL, [duelId, enc], { gasLimit: 3_000_000n });
+    await sendCoti("SETTLE-A", dmSigned.submitFinalPnL, [duelId, enc], { gasLimit: 3_000_000n },
+      async () => (await dm.getFinalPnLStatus(duelId))[0] as boolean);
   }
 
   // ── SETUP ────────────────────────────────────────────────────────────────
@@ -355,8 +436,9 @@ async function main() {
     await sleep((FINAL_WINDOW + 5) * 1000);
 
     // Resolve — the winner comes out of MpcCore.gt on the two ciphertexts
-    const resolveRc = await send("RESOLVE", dm.resolveDuel, [duelId]);
-    const resolvedLog = resolveRc?.logs.find((l: any) =>
+    const resolveRc = await sendCoti("RESOLVE", dm.resolveDuel, [duelId], {},
+      async () => Number((await dm.getDuel(duelId))[5]) === 2);
+    const resolvedLog = (await resolutionLogs(resolveRc, duelId)).find((l: any) =>
       l.topics[0] === ethers.id("DuelResolved(uint256,address,uint256)")
     );
     const iface = new ethers.Interface(["event DuelResolved(uint256 indexed duelId, address indexed winner, uint256 prize)"]);
@@ -435,7 +517,8 @@ async function main() {
     await settleOwner(duelId, 150);
 
     await sleep((FINAL_WINDOW + 5) * 1000);
-    await send("RESOLVE", dm.resolveDuel, [duelId]);
+    await sendCoti("RESOLVE", dm.resolveDuel, [duelId], {},
+      async () => Number((await dm.getDuel(duelId))[5]) === 2);
     await send("SETTLE", mkt.settleRental, [rentalId]);
 
     const alphaFinal = await reg.getProfile(alphaId);
@@ -609,11 +692,13 @@ async function main() {
 
     // Renter resolves so the owner's balance moves only by the refund.
     // The no-contest path returns before the resolver bonus, so there is none.
-    const resolveRc = await send("RESOLVE-NC", dm_renter.resolveDuel, [duelId]);
+    const resolveRc = await sendCoti("RESOLVE-NC", dm_renter.resolveDuel, [duelId], {},
+      async () => Number((await dm.getDuel(duelId))[5]) === 2);
     check("L1: resolveDuel succeeds with no submissions", true);
     check(
       "L2: DuelNoContest emitted",
-      !!resolveRc?.logs.some((l: any) => l.topics[0] === ethers.id("DuelNoContest(uint256,uint256)"))
+      (await resolutionLogs(resolveRc, duelId)).some(
+        (l: any) => l.topics[0] === ethers.id("DuelNoContest(uint256,uint256)"))
     );
 
     const d = await dm.getDuel(duelId);
@@ -712,8 +797,9 @@ async function main() {
 
     // Renter never settles → owner wins by forfeit, which also covers scenario O.
     await sleep((FINAL_WINDOW + 5) * 1000);
-    const rrc = await send("RESOLVE-PIN", dm.resolveDuel, [duelId]);
-    const forfeited = rrc?.logs.some((l: any) =>
+    const rrc = await sendCoti("RESOLVE-PIN", dm.resolveDuel, [duelId], {},
+      async () => Number((await dm.getDuel(duelId))[5]) === 2);
+    const forfeited = (await resolutionLogs(rrc, duelId)).some((l: any) =>
       l.topics[0] === ethers.id("DuelForfeited(uint256,address,address)"));
     check("O1: agent that never settled forfeits", !!forfeited);
     const fd = await dm.getDuel(duelId);
