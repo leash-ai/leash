@@ -149,8 +149,15 @@ contract AgentMarketplace {
         pendingUSDC[l.owner]       += ownerCut;
         pendingUSDC[feeRecipient]  += protocolCut;
 
-        // Create duel — renter is agentA. Owner's agent will join as agentB.
+        // Create duel — this contract is agentA, standing in for the renter.
         duelId = duelManager.createDuel{value: msg.value}(duration);
+
+        // Name the renter as the address that settles agentA's side. This
+        // contract cannot do it itself: settlement needs a signed input text and
+        // MpcCore.validateCiphertext binds the signature to the immediate caller,
+        // so neither holding a key here nor forwarding the renter's ciphertext
+        // works. The renter calls DuelManager.submitFinalPnL directly instead.
+        duelManager.setSettlementDelegate(duelId, msg.sender);
 
         rentalId = ++rentalCount;
         rentals[rentalId] = RentalAgreement({

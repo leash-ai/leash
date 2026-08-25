@@ -24,6 +24,7 @@ import { ethers } from "ethers";
 import dotenv from "dotenv";
 import axios from "axios";
 import { MomentumStrategy, PriceData } from "./strategies/momentum";
+import { cotiWallet, submitFinalPnL } from "./coti/settlement";
 import { MeanReversionStrategy } from "./strategies/meanReversion";
 import { MarketMakerStrategy } from "./strategies/marketMaker";
 
@@ -40,6 +41,7 @@ const MARKETPLACE_ABI = [
   "event AgentRented(uint256 indexed rentalId, uint256 indexed duelId, address indexed renter)",
   "function rentals(uint256) view returns (uint256,uint256,uint256,address,address,uint256,uint256,uint256,bool)",
   "function updateRenterPnL(uint256 rentalId, int256 pnlBps)",
+  "function submitRenterFinalPnL(uint256 rentalId, (uint256 ciphertext, bytes signature) encryptedPnL)",
 ];
 
 const DUEL_ABI = [
@@ -101,6 +103,9 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
   let prices = await fetchPrices();
   strategy.addPriceData(prices);
 
+  // What the marketplace reported on our behalf — settlement is pinned to it.
+  let lastReportedPnlBps: number | null = null;
+
   while (Date.now() < endTime) {
     prices = await fetchPrices();
     strategy.addPriceData(prices);
@@ -117,6 +122,7 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
     try {
       const nonce = await provider.getTransactionCount(wallet.address);
       const tx = await marketplace.updateRenterPnL(rentalId, publicPnlBps, { gasLimit: 300_000n, nonce });
+      lastReportedPnlBps = publicPnlBps;
       await tx.wait();
       log(`📈 PnL submitted: ${(publicPnlBps / 100).toFixed(2)}%`);
     } catch (e: unknown) {
@@ -128,7 +134,27 @@ async function handleRental(rentalId: bigint, duelId: bigint, wallet: ethers.Wal
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
   }
 
-  log(`⏱  Duel #${duelId} ended — final PnL: ${(strategy.calculatePnLBps(prices).publicPnlBps / 100).toFixed(2)}%`);
+  log(`⏱  Duel #${duelId} ended`);
+
+  // Settle through the marketplace: it is agentA in a rented duel, so the renter
+  // cannot call DuelManager.submitFinalPnL directly. The ciphertext is still
+  // encrypted with the renter's own key and pinned to the last reported value.
+  if (lastReportedPnlBps === null) {
+    log("⚠️  Nothing reported on-chain — no score to settle, duel will refund");
+    return;
+  }
+
+  log(`   Settling encrypted ${(lastReportedPnlBps / 100).toFixed(2)}% via marketplace…`);
+  try {
+    const signer = await cotiWallet(PRIVATE_KEY, provider, process.env.RENTER_AES_KEY);
+    const hash = await submitFinalPnL(
+      signer, DUEL_MANAGER_ADDR, duelId, lastReportedPnlBps,
+      { address: MARKETPLACE_ADDR, abi: MARKETPLACE_ABI, method: "submitRenterFinalPnL", id: rentalId }
+    );
+    log(`✅ Settled — ${hash.slice(0, 12)}…`);
+  } catch (e: unknown) {
+    log(`❌ Settlement failed, renter forfeits: ${(e as Error).message?.slice(0, 70)}`);
+  }
 }
 
 async function main() {
