@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Re-run on demand. GitHub's queue can sit on a run for hours — one merge to
+  # main took over three before its run appeared — and an absent run and a queued
+  # one look identical while you wait. Without this the only way to ask for one
+  # was to push an empty commit.
+  workflow_dispatch:
 
 # Everything here runs without network access to COTI and without secrets.
 # The MPC-dependent paths cannot be covered this way — they need the precompile
