@@ -799,12 +799,26 @@ async function main() {
     await sleep((FINAL_WINDOW + 5) * 1000);
     const rrc = await sendCoti("RESOLVE-PIN", dm.resolveDuel, [duelId], {},
       async () => Number((await dm.getDuel(duelId))[5]) === 2);
-    const forfeited = (await resolutionLogs(rrc, duelId)).some((l: any) =>
-      l.topics[0] === ethers.id("DuelForfeited(uint256,address,address)"));
-    check("O1: agent that never settled forfeits", !!forfeited);
+    // The renter reported 200bps and then did not settle. It competed, so it is
+    // not forfeited — the duel falls back to the public scores, where 200 beats
+    // the owner's 100. Forfeiting it would punish a missed 60s window rather
+    // than a missed duel, and the pin means settling could not have changed the
+    // number anyway.
+    const logs = await resolutionLogs(rrc, duelId);
+    check(
+      "O1: a competitor that skipped settlement is decided on public scores",
+      logs.some((l: any) => l.topics[0] === ethers.id("DuelDecidedOnPublicScores(uint256)")),
+    );
+    check(
+      "O2: not treated as a forfeit",
+      !logs.some((l: any) => l.topics[0] === ethers.id("DuelForfeited(uint256,address,address)")),
+    );
     const fd = await dm.getDuel(duelId);
-    check("O2: forfeit awarded to the agent that settled",
-          (fd[6] as string).toLowerCase() === owner.address.toLowerCase());
+    const live = await dm.getLivePnL(duelId);
+    const expected = Number(live[0]) > Number(live[1]) ? MKT_ADDR : owner.address;
+    check("O3: the higher public score wins",
+          (fd[6] as string).toLowerCase() === expected.toLowerCase(),
+          `A=${live[0]}bps B=${live[1]}bps → ${(fd[6] as string).slice(0, 10)}…`);
     await send("SETTLE-PIN", mkt.settleRental, [rentalId]);
   }
 
