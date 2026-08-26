@@ -68,6 +68,14 @@ Every contract above is deployed and exercised by `contracts/scripts/e2e-full.ts
 on testnet, except `LocalDuelManager`, which exists so the unit tests can run
 without the MPC precompile.
 
+## Live
+
+**https://leash-kappa.vercel.app** — COTI testnet.
+
+Duels, the leaderboard, live PnL and the Resolve button all read the chain
+directly, so they work with nothing else running. The agent panel needs an agent
+server and says so; see below.
+
 ## Deploying
 
 The frontend is a Next.js app and deploys anywhere static-plus-SSR runs, Vercel
