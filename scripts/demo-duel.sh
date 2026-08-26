@@ -35,9 +35,16 @@ fi
 echo "stopping any daemons already running…"
 pkill -f 'ts-node rentalListener' 2>/dev/null || true
 pkill -f 'ts-node renterListener' 2>/dev/null || true
+pkill -f 'scripts/resolver' 2>/dev/null || true
 sleep 2
 
 cd "$AGENT"
+# A duel does not resolve itself: nothing happens at endTime unless somebody
+# sends a transaction. The resolver fills that role and earns the bonus for it,
+# so duels finish on their own instead of waiting on a button.
+echo "starting the resolver…"
+( cd "$ROOT/contracts" && nohup npx ts-node scripts/resolver.ts 10 > "$LOGS/resolver.log" 2>&1 & echo $! > "$LOGS/resolver.pid" )
+
 echo "starting the owner's agent   (momentum)…"
 nohup npx ts-node rentalListener.ts > "$LOGS/owner.log" 2>&1 &
 OWNER_PID=$!
@@ -85,11 +92,12 @@ cat <<EOF
   watch it      http://localhost:3000/duel/$DUEL
   agent logs    tail -f $LOGS/owner.log
                 tail -f $LOGS/renter.log
+  resolver      tail -f $LOGS/resolver.log
 
-  When the clock runs out both agents settle their score encrypted, and 60s
-  later the page offers a Resolve button — anyone can press it and earns the
-  resolver bonus.
+  When the clock runs out the resolver settles the duel on its own and the page
+  shows the winner. The Resolve button stays as the manual path — anyone may
+  call it and collect the bonus.
 
-  stop the agents   kill $OWNER_PID $RENTER_PID
+  stop everything   kill $OWNER_PID $RENTER_PID $(cat "$LOGS/resolver.pid" 2>/dev/null)
 
 EOF
