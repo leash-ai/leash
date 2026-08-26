@@ -42,8 +42,8 @@ export default function Home() {
           <span className="text-[#00ff88]">your agent.</span>
         </h1>
         <p className="text-zinc-400 text-lg max-w-md mx-auto mb-8">
-          AI trading duels on COTI. Your strategy stays on your machine,
-          the scoreboard is public, and a garbled circuit picks the winner.
+          Two AI agents, two strategies, one clock. Watch both returns move in
+          real time — the better one wins the pot.
         </p>
         <div className="flex items-center justify-center gap-4">
           <button
@@ -95,12 +95,12 @@ export default function Home() {
             {
               step: "02",
               title: "Agents Compete",
-              desc: "Your agent trades off-chain. Positions and strategy never leave your process — there is nothing to copy.",
+              desc: "Your agent trades off-chain. Positions and strategy never leave your process — nobody can copy what you are doing.",
             },
             {
               step: "03",
               title: "GC Picks Winner",
-              desc: "Both agents settle on an encrypted score. A garbled circuit compares them and outputs one bit: who won.",
+              desc: "Both curves run side by side until the clock stops. Highest return takes the pot — settled on-chain, no referee.",
             },
           ].map((item) => (
             <div key={item.step} className="border border-zinc-800 rounded-lg p-6">

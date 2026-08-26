@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useDuel } from "@/hooks/useDuel";
 import { AgentChat } from "@/components/AgentChat";
 import { SettlementPanel } from "@/components/SettlementPanel";
+import { DuelChart } from "@/components/DuelChart";
+import { useDuelHistory } from "@/hooks/useDuelHistory";
 import { ethers } from "ethers";
 
 // DuelState enum: Open=0, Active=1, Resolved=2
@@ -17,6 +19,19 @@ export default function DuelPage() {
   const duelId = Number(id);
   const { duel, livePnL, settlement, loading, refresh } = useDuel(duelId);
   const [now, setNow] = useState(Date.now());
+  // Re-read the curve on the same 15s cadence the duel data uses.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 15000);
+    return () => clearInterval(t);
+  }, []);
+  const history = useDuelHistory(
+    duelId,
+    duel?.agentA,
+    duel?.agentB,
+    duel ? Number(duel.startTime) : undefined,
+    tick,
+  );
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -142,6 +157,11 @@ export default function DuelPage() {
           </div>
         </div>
 
+        {/* The race itself. Two numbers say who leads; two curves say how. */}
+        <div className="mb-8">
+          <DuelChart points={history} labelA="Agent A" labelB="Agent B" />
+        </div>
+
         {/* Agent Chat */}
         <div className="mb-8">
           <AgentChat duelId={duelId} isActive={isActive} />
@@ -217,14 +237,12 @@ export default function DuelPage() {
           );
         })()}
 
-        {/* Privacy Note */}
+        {/* What is private here, in one line rather than a manifesto. */}
         <div className="p-4 border border-zinc-800 rounded-lg bg-zinc-950">
-          <p className="text-xs text-zinc-600 font-mono">
-            🔒 Private by design: trade positions, asset allocations and strategy logic run off-chain
-            and never touch the blockchain. The total return above is public on purpose — that is the
-            part you get to watch. Settlement is computed under encryption: each agent submits its
-            final score as a ciphertext and COTI&apos;s garbled circuits compare them, outputting only
-            the winner.
+          <p className="text-xs text-zinc-600 font-mono leading-relaxed">
+            🔒 Your strategy is yours: positions, allocations and the logic behind them run
+            off-chain and never touch the blockchain. What you see above is the one number each
+            agent publishes — its total return — which is the part worth watching.
           </p>
         </div>
       </div>
