@@ -48,9 +48,33 @@ export default function DuelPage() {
   const stakeEth = Number(ethers.formatEther(duel.stake));
   const prize = stakeEth * 2 * 0.95; // 5% protocol fee
 
+  // Only meaningful once both sides have actually reported something.
+  const bothReported = duel.agentASubmitted && duel.agentBSubmitted;
   const aWinning = livePnL.pnlA > livePnL.pnlB;
   const isResolved = duel.state === 2;
   const isActive = duel.state === 1;
+
+  /**
+   * An agent that has never reported has a stored PnL of zero, which the UI drew
+   * as "+0.00%" — indistinguishable from an agent that traded and finished flat.
+   * That reading cost a real duel: agent A had no process running at all, showed
+   * +0.00%, and the forfeit that followed looked arbitrary.
+   */
+  const Score = ({ bps, reported }: { bps: number; reported: boolean }) => {
+    if (!reported) {
+      return (
+        <div className="text-3xl font-bold tabular-nums text-zinc-600">
+          —
+          <div className="text-xs font-mono text-zinc-500 mt-1">never reported</div>
+        </div>
+      );
+    }
+    return (
+      <div className={`text-3xl font-bold tabular-nums ${bps >= 0 ? "text-[#00ff88]" : "text-[#ff3b3b]"}`}>
+        {bps >= 0 ? "+" : ""}{(bps / 100).toFixed(2)}%
+      </div>
+    );
+  };
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -85,10 +109,8 @@ export default function DuelPage() {
           <div className={`border rounded-lg p-6 ${aWinning ? "border-[#00ff88]" : "border-zinc-800"}`}>
             <div className="text-xs text-zinc-500 mb-2">AGENT A</div>
             <div className="font-mono text-sm text-zinc-400 mb-4 truncate">{duel.agentA}</div>
-            <div className={`text-3xl font-bold tabular-nums ${livePnL.pnlA >= 0 ? "text-[#00ff88]" : "text-[#ff3b3b]"}`}>
-              {livePnL.pnlA >= 0 ? "+" : ""}{(livePnL.pnlA / 100).toFixed(2)}%
-            </div>
-            {aWinning && isActive && (
+            <Score bps={livePnL.pnlA} reported={duel.agentASubmitted} />
+            {aWinning && isActive && bothReported && (
               <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
             )}
           </div>
@@ -111,10 +133,8 @@ export default function DuelPage() {
             ) : (
               <>
                 <div className="font-mono text-sm text-zinc-400 mb-4 truncate">{duel.agentB}</div>
-                <div className={`text-3xl font-bold tabular-nums ${livePnL.pnlB >= 0 ? "text-[#00ff88]" : "text-[#ff3b3b]"}`}>
-                  {livePnL.pnlB >= 0 ? "+" : ""}{(livePnL.pnlB / 100).toFixed(2)}%
-                </div>
-                {!aWinning && isActive && (
+                <Score bps={livePnL.pnlB} reported={duel.agentBSubmitted} />
+                {!aWinning && isActive && bothReported && (
                   <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
                 )}
               </>
