@@ -66,7 +66,17 @@ app.post("/agent/chat", async (req, res) => {
     const reply = await ai.chat(entry.state, message);
     res.json({ reply, strategy: entry.state.strategy });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    // Say what the operator can act on rather than forwarding the provider's
+    // raw body to a browser. A 402 here means the Mistral key has no credit —
+    // nothing about the deployment or the duel is wrong, and the message used
+    // to arrive as an unreadable API dump.
+    const raw = String(e?.message ?? "");
+    const noCredit = raw.includes("402") || /subscription|quota|credit/i.test(raw);
+    res.status(noCredit ? 503 : 500).json({
+      error: noCredit
+        ? "The strategy chat needs a funded MISTRAL_API_KEY — the current key has no credit. Everything else works without it; the agent still trades on its configured strategy."
+        : `Agent error: ${raw.slice(0, 160)}`,
+    });
   }
 });
 

@@ -101,6 +101,11 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
 
       if (data.reply) addMsg("agent", data.reply);
       else if (data.ok) addMsg("system", "Message queued for next tick");
+      // A server that answered with an error used to land here and do nothing:
+      // your message appeared, then silence, which reads as a hang rather than
+      // a failure.
+      else if (data.error) addMsg("system", `⚠️ ${data.error}`);
+      else addMsg("system", "⚠️ Agent server returned nothing usable");
     } catch {
       addMsg("system", "⚠️ Agent server unreachable — start it with: cd agent && npm start");
     } finally {
