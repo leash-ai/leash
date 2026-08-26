@@ -162,7 +162,7 @@ function openAiBackend(prefix: string, defaultModel: string): LlmClient | null {
 export function makeLlmClient(): LlmClient {
   const backends: LlmClient[] = [];
 
-  const primary = openAiBackend("AI_", "llama-3.3-70b-versatile");
+  const primary = openAiBackend("AI_", "qwen/qwen3.8-27b");
   if (primary) backends.push(primary);
 
   const fallback = openAiBackend("AI_FALLBACK_", "grok-4.6");
