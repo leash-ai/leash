@@ -24,11 +24,29 @@ export async function runDuel(
   onEvent: (e: FeedEvent) => void,
   signerKey?: string
 ): Promise<void> {
-  const key = signerKey || process.env.SIGNING_KEYS!;
+  // AGENT_PRIVATE_KEY is what agent/.env.example declares and what every other
+  // runtime here reads. This used to fall back to SIGNING_KEYS — a contracts-side
+  // name absent from the agent's env, and a comma-separated list even when it is
+  // set, so a Wallet built from it would fail anyway. The result was that the
+  // frontend's "Start Agent" button always died on `invalid private key`, which
+  // says nothing about what to fix.
+  const key = signerKey || process.env.AGENT_PRIVATE_KEY || process.env.SIGNING_KEYS?.split(",")[0];
+  if (!key) {
+    throw new Error(
+      "No signing key: set AGENT_PRIVATE_KEY in agent/.env, or pass signerKey when starting the agent.",
+    );
+  }
+
   const provider = new ethers.JsonRpcProvider(
     process.env.COTI_RPC || "https://testnet.coti.io/rpc"
   );
-  const wallet = new ethers.Wallet(key, provider);
+
+  let wallet: ethers.Wallet;
+  try {
+    wallet = new ethers.Wallet(key.trim(), provider);
+  } catch {
+    throw new Error("The configured signing key is not a valid private key — check AGENT_PRIVATE_KEY.");
+  }
   const dm = new ethers.Contract(process.env.DUEL_MANAGER_ADDRESS!, DM_ABI, wallet);
   const ai = new MistralAgent();
 

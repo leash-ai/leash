@@ -137,9 +137,23 @@ Prices: ${priceDesc}${ownerNote}`;
         pnlBps: newPnl,
       };
     } catch (e) {
+      // Holding is the right fallback — a duel should not be decided by a model
+      // outage — but "parse error" was the wrong explanation for every cause.
+      // The usual one is an unfunded key, and reading that as a JSON problem
+      // sends you looking in the wrong place entirely.
+      const raw = String((e as Error)?.message ?? "");
+      const reasoning =
+        raw.includes("402") || /subscription|quota|credit/i.test(raw)
+          ? "holding — MISTRAL_API_KEY has no credit"
+          : /401|403|unauthor/i.test(raw)
+            ? "holding — MISTRAL_API_KEY rejected"
+            : /timeout|ETIMEDOUT|ENOTFOUND|fetch failed/i.test(raw)
+              ? "holding — model unreachable"
+              : `holding — ${raw.slice(0, 60) || "unparseable model response"}`;
+
       return {
         action: { type: "HOLD" },
-        reasoning: "parse error",
+        reasoning,
         tradeLog: "HOLD",
         pnlBps,
       };
