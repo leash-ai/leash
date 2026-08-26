@@ -6,16 +6,16 @@
  * inside every free tier worth having, so the useful thing is not picking one
  * provider but making the key you happen to hold work without a code change.
  *
- * Two backends:
+ * Backends, tried in order and configured independently:
  *
- *   MISTRAL_API_KEY            the original, via @mistralai/mistralai
- *   AI_BASE_URL + AI_API_KEY   anything speaking OpenAI chat-completions —
- *                              Groq, Cerebras, OpenRouter, SambaNova, OpenAI,
- *                              a local Ollama
+ *   AI_*            primary — anything speaking OpenAI chat-completions: Groq,
+ *                   xAI, Cerebras, OpenRouter, SambaNova, OpenAI, local Ollama
+ *   AI_FALLBACK_*   second, used when the primary is unavailable
+ *   MISTRAL_API_KEY last resort, via @mistralai/mistralai
  *
- * AI_BASE_URL wins when both are set. The OpenAI path is plain fetch on purpose:
- * that wire format is stable and shared by every provider above, and adding an
- * SDK to reach it would buy nothing.
+ * Configure two and a spent daily cap or a rate limit stops being an outage. The
+ * OpenAI path is plain fetch on purpose: that wire format is stable and shared by
+ * every provider above, and an SDK to reach it would buy nothing.
  */
 import { Mistral } from "@mistralai/mistralai";
 
@@ -97,18 +97,82 @@ export class NoLlmConfigured extends Error {
   }
 }
 
-export function makeLlmClient(): LlmClient {
-  const baseUrl = process.env.AI_BASE_URL;
-  const apiKey = process.env.AI_API_KEY;
+/**
+ * Tries each backend in turn and returns the first answer it gets.
+ *
+ * Free tiers fail in ways that are worth surviving rather than reporting: a
+ * daily cap resets tomorrow, a rate limit resets in seconds, a promotional
+ * credit runs out one day without warning. With two providers configured, one of
+ * those stops being an outage and becomes a line in the log.
+ *
+ * It does not fail over on everything. A malformed request fails the same way
+ * everywhere, so retrying it against a second provider just doubles the latency
+ * before the same error — only availability faults are worth a second attempt.
+ */
+class FailoverClient implements LlmClient {
+  readonly describe: string;
 
-  if (baseUrl && apiKey) {
-    return new OpenAiCompatible(baseUrl, apiKey, process.env.AI_MODEL || "llama-3.3-70b-versatile");
+  constructor(private backends: LlmClient[]) {
+    this.describe = backends.map((b) => b.describe).join(" → ");
   }
+
+  /** Faults where another provider might plausibly succeed. */
+  private worthFailingOver(message: string): boolean {
+    return /\b(401|402|403|408|409|429|5\d\d)\b/.test(message)
+      || /quota|credit|insufficient|rate.?limit|unauthor|timeout|ETIMEDOUT|ENOTFOUND|ECONNREFUSED|fetch failed|aborted|overload|capacity|unavailable/i.test(message);
+  }
+
+  async complete(messages: ChatMessage[], maxTokens: number, temperature?: number): Promise<string> {
+    const failures: string[] = [];
+
+    for (let i = 0; i < this.backends.length; i++) {
+      const backend = this.backends[i];
+      try {
+        const out = await backend.complete(messages, maxTokens, temperature);
+        if (i > 0) console.warn(`[llm] ${failures.join("; ")} — served by ${backend.describe}`);
+        return out;
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e);
+        const last = i === this.backends.length - 1;
+        if (!last && !this.worthFailingOver(msg)) throw e;
+        failures.push(`${backend.describe} failed (${msg.slice(0, 80)})`);
+        if (last) throw new Error(failures.join("; "));
+      }
+    }
+
+    throw new NoLlmConfigured();
+  }
+}
+
+function openAiBackend(prefix: string, defaultModel: string): LlmClient | null {
+  const baseUrl = process.env[`${prefix}BASE_URL`];
+  const apiKey = process.env[`${prefix}API_KEY`];
+  if (!baseUrl || !apiKey) return null;
+  return new OpenAiCompatible(baseUrl, apiKey, process.env[`${prefix}MODEL`] || defaultModel);
+}
+
+/**
+ * Backends in priority order, from whatever is configured:
+ *
+ *   AI_BASE_URL / AI_API_KEY / AI_MODEL                      primary
+ *   AI_FALLBACK_BASE_URL / AI_FALLBACK_API_KEY / …_MODEL     used if the primary
+ *                                                            is unavailable
+ *   MISTRAL_API_KEY                                          last resort
+ */
+export function makeLlmClient(): LlmClient {
+  const backends: LlmClient[] = [];
+
+  const primary = openAiBackend("AI_", "llama-3.3-70b-versatile");
+  if (primary) backends.push(primary);
+
+  const fallback = openAiBackend("AI_FALLBACK_", "grok-4.6");
+  if (fallback) backends.push(fallback);
 
   const mistralKey = process.env.MISTRAL_API_KEY;
   if (mistralKey) {
-    return new MistralBackend(mistralKey, process.env.AI_MODEL || "mistral-small-latest");
+    backends.push(new MistralBackend(mistralKey, process.env.MISTRAL_MODEL || "mistral-small-latest"));
   }
 
-  throw new NoLlmConfigured();
+  if (backends.length === 0) throw new NoLlmConfigured();
+  return backends.length === 1 ? backends[0] : new FailoverClient(backends);
 }
