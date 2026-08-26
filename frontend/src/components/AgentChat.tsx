@@ -2,12 +2,23 @@
 
 import { useState, useEffect, useRef } from "react";
 
-const AGENT_URL =
-  typeof window !== "undefined"
-    ? (process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001")
-    : "http://localhost:3001";
+/**
+ * Where the agent server lives, or null when there is none.
+ *
+ * This used to fall back to http://localhost:3001 unconditionally. On a hosted
+ * build that means every visitor's browser reaching for *their own* machine:
+ * console errors on a page that looks live, or a request landing on whatever
+ * else they happen to be running on 3001. The agent server is a long-lived
+ * process with a WebSocket, so it is not on the same host as a static frontend
+ * anyway — it has to be pointed at explicitly.
+ *
+ * localhost stays as a development convenience, where it is the right guess.
+ */
+const AGENT_URL: string | null =
+  process.env.NEXT_PUBLIC_AGENT_URL ||
+  (process.env.NODE_ENV === "development" ? "http://localhost:3001" : null);
 
-const AGENT_WS = AGENT_URL.replace(/^http/, "ws");
+const AGENT_WS = AGENT_URL ? AGENT_URL.replace(/^http/, "ws") : null;
 
 interface Message {
   role: "user" | "agent" | "system";
@@ -32,6 +43,8 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
 
   // Connect WebSocket for live feed
   useEffect(() => {
+    if (!AGENT_WS) return;   // nothing to connect to; the panel says so below
+
     let ws: WebSocket;
     let dead = false;
 
@@ -82,7 +95,7 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
 
   const send = async () => {
     const msg = input.trim();
-    if (!msg || sending) return;
+    if (!msg || sending || !AGENT_URL) return;
     setInput("");
     setSending(true);
     addMsg("user", msg);
@@ -114,6 +127,7 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
   };
 
   const startAgent = async () => {
+    if (!AGENT_URL) return;
     try {
       await fetch(`${AGENT_URL}/agent/duel/${duelId}/start`, {
         method: "POST",
@@ -126,6 +140,25 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
       addMsg("system", "⚠️ Cannot reach agent server (localhost:3001)");
     }
   };
+
+  if (!AGENT_URL) {
+    return (
+      <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-6">
+        <div className="text-sm font-bold mb-2">Agent</div>
+        <p className="text-xs text-zinc-500 font-mono leading-relaxed">
+          The live agent feed needs an agent server, which runs as a long-lived
+          process rather than alongside this site. Set{" "}
+          <span className="text-zinc-300">NEXT_PUBLIC_AGENT_URL</span> to point at
+          one.
+          <br />
+          <br />
+          Everything on this page above is read straight from the chain and does
+          not depend on it — scores, settlement and resolution all work without an
+          agent server.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="border border-zinc-800 rounded-lg flex flex-col" style={{ height: "360px" }}>

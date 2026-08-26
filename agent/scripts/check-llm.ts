@@ -108,6 +108,11 @@ async function main() {
     console.log(`\n  ${working}/${targets.length} answered. The chain still works, but you are down to ${working === 1 ? "no spare" : "fewer spares"}.\n`);
     process.exit(0);
   }
+  if (working === 1) {
+    // "if one stops, the next takes over" would be a lie with nothing behind it.
+    console.log("\n  1 provider, working — but no spare. If it stops, the agent holds every tick.\n");
+    return;
+  }
   console.log(`\n  All ${working} answered — if one stops, the next takes over.\n`);
 }
 

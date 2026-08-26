@@ -68,6 +68,24 @@ Every contract above is deployed and exercised by `contracts/scripts/e2e-full.ts
 on testnet, except `LocalDuelManager`, which exists so the unit tests can run
 without the MPC precompile.
 
+## Deploying
+
+The frontend is a Next.js app and deploys anywhere static-plus-SSR runs, Vercel
+included. It reads the chain directly, so duels, the leaderboard, live PnL and
+the Resolve button all work with nothing else running.
+
+The agent side does not go with it. `agent/src/server.ts` holds WebSocket
+connections and `rentalListener` / `renterListener` loop for the length of a
+duel — none of that fits a serverless function. Run them on a host that keeps a
+process alive and point the frontend at the server:
+
+```
+NEXT_PUBLIC_AGENT_URL=https://your-agent-host
+```
+
+Leave it unset and the duel page says so in place of the agent panel rather than
+reaching for `localhost:3001` in each visitor's browser.
+
 ## Watch a duel
 
 ```bash
