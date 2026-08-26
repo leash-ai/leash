@@ -5,7 +5,7 @@ import * as http from "http";
 import * as dotenv from "dotenv";
 dotenv.config();
 
-import { MistralAgent, createAgentState, AgentState } from "./ai_agent";
+import { TradingAgent, createAgentState, AgentState } from "./ai_agent";
 import { runDuel, FeedEvent } from "./runner";
 
 const app = express();
@@ -22,7 +22,7 @@ interface DuelEntry {
 }
 
 const duels = new Map<number, DuelEntry>();
-const ai = new MistralAgent();
+const ai = new TradingAgent();
 
 function getOrCreate(duelId: number): DuelEntry {
   if (!duels.has(duelId)) {
@@ -71,10 +71,14 @@ app.post("/agent/chat", async (req, res) => {
     // nothing about the deployment or the duel is wrong, and the message used
     // to arrive as an unreadable API dump.
     const raw = String(e?.message ?? "");
-    const noCredit = raw.includes("402") || /subscription|quota|credit/i.test(raw);
-    res.status(noCredit ? 503 : 500).json({
-      error: noCredit
-        ? "The strategy chat needs a funded MISTRAL_API_KEY — the current key has no credit. Everything else works without it; the agent still trades on its configured strategy."
+    const keyVar = process.env.AI_BASE_URL ? "AI_API_KEY" : "MISTRAL_API_KEY";
+    const unusable =
+      raw.includes("No LLM configured") ||
+      raw.includes("402") ||
+      /subscription|quota|credit|insufficient|401|403|unauthor/i.test(raw);
+    res.status(unusable ? 503 : 500).json({
+      error: unusable
+        ? `The strategy chat needs a working ${keyVar}. Everything else works without it — the agent still trades on its configured strategy and settlement is unaffected.`
         : `Agent error: ${raw.slice(0, 160)}`,
     });
   }

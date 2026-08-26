@@ -3,7 +3,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 import { fetchPrices } from "./prices";
-import { MistralAgent, AgentState } from "./ai_agent";
+import { TradingAgent, AgentState } from "./ai_agent";
 import { cotiWallet, submitFinalPnL } from "../coti/settlement";
 
 const DM_ABI = [
@@ -48,7 +48,7 @@ export async function runDuel(
     throw new Error("The configured signing key is not a valid private key — check AGENT_PRIVATE_KEY.");
   }
   const dm = new ethers.Contract(process.env.DUEL_MANAGER_ADDRESS!, DM_ABI, wallet);
-  const ai = new MistralAgent();
+  const ai = new TradingAgent();
 
   const emit = (type: FeedEvent["type"], data: any) =>
     onEvent({ type, timestamp: Date.now(), data });
