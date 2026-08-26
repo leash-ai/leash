@@ -18,6 +18,7 @@ const MODULES = [
   "../strategies/meanReversion",
   "../strategies/marketMaker",
   "../coti/settlement",
+  "../src/llm",
   "../marketData",
   "../strategies/factory",
   "../strategies/warmup",

@@ -1,4 +1,4 @@
-import { Mistral } from "@mistralai/mistralai";
+import { LlmClient, makeLlmClient } from "./llm";
 import {
   Portfolio,
   createPortfolio,
@@ -49,11 +49,17 @@ Respond with ONLY this JSON (no extra text):
 - pct: % of cash (BUY) or % of position (SELL)
 - Keep reasoning under 10 words.`;
 
-export class MistralAgent {
-  private client: Mistral;
+export class TradingAgent {
+  private llm: LlmClient | null = null;
 
-  constructor() {
-    this.client = new Mistral({ apiKey: process.env.MISTRAL_API_KEY! });
+  /**
+   * Built on first use, not in the constructor. The HTTP server creates this
+   * agent at start-up, and a missing key should surface as a message in the
+   * duel feed rather than stopping the server from booting.
+   */
+  private client(): LlmClient {
+    if (!this.llm) this.llm = makeLlmClient();
+    return this.llm;
   }
 
   async chat(state: AgentState, userMessage: string): Promise<string> {
@@ -67,13 +73,7 @@ export class MistralAgent {
       ...state.chatHistory.slice(-10),
     ];
 
-    const res = await this.client.chat.complete({
-      model: "mistral-small-latest",
-      messages,
-      maxTokens: 300,
-    });
-
-    const reply = (res.choices?.[0]?.message?.content as string) ?? "...";
+    const reply = (await this.client().complete(messages, 300)) || "...";
     state.chatHistory.push({ role: "assistant", content: reply });
 
     // Update strategy from meaningful user messages
@@ -106,22 +106,10 @@ Prices: ${priceDesc}${ownerNote}`;
     ];
 
     try {
-      const res = await this.client.chat.complete({
-        model: "mistral-small-latest",
-        messages,
-        maxTokens: 120,
-        temperature: 0.3,
-      });
-
-      const contentRaw = res.choices?.[0]?.message?.content;
-      const raw: string = typeof contentRaw === "string"
-        ? contentRaw
-        : Array.isArray(contentRaw)
-          ? (contentRaw as any[]).map((c: any) => c.text ?? "").join("")
-          : '{"action":"HOLD"}';
+      const raw: string = (await this.client().complete(messages, 120, 0.3)) || '{"action":"HOLD"}';
       const jsonMatch = raw.match(/\{[^{}]*\}/);
       const parsed = JSON.parse(jsonMatch?.[0] ?? '{"action":"HOLD"}');
-      // Mistral returns "action" field; applyAction expects "type"
+      // Models answer with "action"; applyAction expects "type".
       const normalizedAction = {
         type: (parsed.type ?? parsed.action ?? "HOLD") as "BUY" | "SELL" | "HOLD",
         symbol: parsed.symbol,
@@ -142,14 +130,19 @@ Prices: ${priceDesc}${ownerNote}`;
       // The usual one is an unfunded key, and reading that as a JSON problem
       // sends you looking in the wrong place entirely.
       const raw = String((e as Error)?.message ?? "");
+      const keyVar = process.env.AI_BASE_URL ? "AI_API_KEY" : "MISTRAL_API_KEY";
       const reasoning =
-        raw.includes("402") || /subscription|quota|credit/i.test(raw)
-          ? "holding — MISTRAL_API_KEY has no credit"
-          : /401|403|unauthor/i.test(raw)
-            ? "holding — MISTRAL_API_KEY rejected"
-            : /timeout|ETIMEDOUT|ENOTFOUND|fetch failed/i.test(raw)
-              ? "holding — model unreachable"
-              : `holding — ${raw.slice(0, 60) || "unparseable model response"}`;
+        raw.includes("No LLM configured")
+          ? "holding — no LLM configured (see AI_BASE_URL / MISTRAL_API_KEY)"
+          : raw.includes("402") || /subscription|quota|credit|insufficient/i.test(raw)
+            ? `holding — ${keyVar} has no credit`
+            : /401|403|unauthor|invalid.*key/i.test(raw)
+              ? `holding — ${keyVar} rejected`
+              : /429|rate.?limit/i.test(raw)
+                ? "holding — provider rate limit, will retry next tick"
+                : /timeout|ETIMEDOUT|ENOTFOUND|fetch failed|aborted/i.test(raw)
+                  ? "holding — model unreachable"
+                  : `holding — ${raw.slice(0, 60) || "unparseable model response"}`;
 
       return {
         action: { type: "HOLD" },
