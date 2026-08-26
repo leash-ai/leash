@@ -165,43 +165,57 @@ export default function DuelPage() {
             them has a winner. A no-contest used to render nothing at all, so the
             page said "Resolved" and left you to guess what had happened to the
             stakes. */}
-        {isResolved && (
-          duel.winner && duel.winner !== ethers.ZeroAddress ? (
+        {isResolved && (() => {
+          // Four ways a duel ends, and the page should name the right one.
+          // Competing means reporting live PnL; settling is the encrypted final.
+          const aCompeted = duel.agentASubmitted;
+          const bCompeted = duel.agentBSubmitted;
+          const byForfeit = aCompeted !== bCompeted;
+          const bothSettled = !!settlement?.agentASettled && !!settlement?.agentBSettled;
+          const onPublicScores = aCompeted && bCompeted && !bothSettled;
+          const hasWinner = duel.winner && duel.winner !== ethers.ZeroAddress;
+
+          if (!hasWinner) {
+            return (
+              <div className="border border-zinc-700 rounded-lg p-6 mb-8">
+                <div className="text-xs text-zinc-400 mb-2">NO CONTEST</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🤝</span>
+                  <div>
+                    <div className="font-bold text-lg">Both stakes refunded in full</div>
+                    <div className="text-xs font-mono text-zinc-500 mt-1">
+                      Neither agent reported anything, so there was nothing to compare. No
+                      winner, no protocol fee — {ethers.formatEther(duel.stake)} COTI back to
+                      each side.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
             <div className="border border-[#00ff88] rounded-lg p-6 mb-8">
               <div className="text-xs text-[#00ff88] mb-2">DUEL RESOLVED</div>
               <div className="flex items-center gap-3">
                 <span className="text-2xl">🏆</span>
                 <div>
                   <div className="font-bold text-lg">
-                    {settlement && settlement.agentASettled !== settlement.agentBSettled
-                      ? "Winner by forfeit"
-                      : "Winner"}
+                    {byForfeit ? "Winner by forfeit" : "Winner"}
                   </div>
                   <div className="font-mono text-zinc-400">{duel.winner}</div>
-                  {settlement && settlement.agentASettled !== settlement.agentBSettled && (
-                    <div className="text-xs font-mono text-zinc-500 mt-1">
-                      The other agent never submitted a final score, so it did not finish.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="border border-zinc-700 rounded-lg p-6 mb-8">
-              <div className="text-xs text-zinc-400 mb-2">NO CONTEST</div>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">🤝</span>
-                <div>
-                  <div className="font-bold text-lg">Both stakes refunded in full</div>
                   <div className="text-xs font-mono text-zinc-500 mt-1">
-                    Neither agent settled, so there was nothing to compare. No winner, no
-                    protocol fee — {ethers.formatEther(duel.stake)} COTI back to each side.
+                    {byForfeit
+                      ? "The other agent never reported a score, so it did not compete."
+                      : onPublicScores
+                        ? "Decided on the public scores — one side did not submit an encrypted final, so there was nothing to compare inside the circuit."
+                        : "Decided by a garbled-circuit comparison of the two encrypted scores."}
                   </div>
                 </div>
               </div>
             </div>
-          )
-        )}
+          );
+        })()}
 
         {/* Privacy Note */}
         <div className="p-4 border border-zinc-800 rounded-lg bg-zinc-950">

@@ -27,10 +27,22 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
  *   endTime → +finalWindow() encrypted final PnL accepted, pinned to last live
  *   after that window      resolveDuel(), anyone, earns a resolver bonus
  *
- * Outcome depends on who submitted an encrypted final:
- *   both     → garbled-circuit comparison, higher score wins
- *   one      → that agent wins by forfeit
- *   neither  → no contest, both stakes refunded in full, no fee
+ * An agent competes by reporting live PnL before endTime. Settling afterwards is
+ * how the winner is computed, not whether there is one:
+ *
+ *   neither competed          no contest, both stakes refunded in full, no fee
+ *   one competed              that agent wins by forfeit
+ *   both competed, both settled   garbled-circuit comparison of the ciphertexts
+ *   both competed, one or neither settled
+ *                             decided on the public live scores, which the
+ *                             in-circuit pin would have reproduced anyway
+ *
+ * That last case is the honest consequence of the pin: a final submission must
+ * equal the agent's own last public report, so it carries nothing the chain does
+ * not already hold. Forfeiting an agent that traded all duel and missed a
+ * 60-second window would punish it for skipping a step that cannot change the
+ * result. The cost is that such a duel is decided in the open rather than under
+ * encryption, and DuelDecidedOnPublicScores records which happened.
  */
 contract DuelManager {
 
@@ -110,6 +122,9 @@ contract DuelManager {
     event DuelForfeited(uint256 indexed duelId, address indexed winner, address indexed loser);
     event DuelNoContest(uint256 indexed duelId, uint256 refundPerAgent);
     event FinalPnLSubmitted(uint256 indexed duelId, address indexed agent);
+    /// Emitted when the winner came from the public live scores rather than the
+    /// garbled circuit, because at least one agent competed but never settled.
+    event DuelDecidedOnPublicScores(uint256 indexed duelId);
     event SettlementDelegateSet(uint256 indexed duelId, address indexed principal, address indexed delegate);
 
     constructor(address _feeRecipient) {
@@ -283,8 +298,25 @@ contract DuelManager {
 
         duel.state = DuelState.Resolved;
 
-        // Neither agent settled — no contest. Refund both stakes, charge nothing.
-        if (!duel.finalASubmitted && !duel.finalBSubmitted) {
+        // What decides a duel is whether an agent competed — that is, whether it
+        // reported live PnL before endTime. Settling afterwards is how the winner
+        // is computed, not whether there is one.
+        //
+        // Forfeiting an agent that traded the whole duel and missed the 60-second
+        // settlement window would punish it for skipping a step that cannot change
+        // the outcome: submitFinalPnL pins the ciphertext to that agent's last
+        // public report, so the encrypted score carries no information the chain
+        // does not already hold. Live reporting closes at endTime, so those values
+        // are frozen before the window opens and nobody can revise them.
+        //
+        // The cost is stated plainly: when a side does not settle there is nothing
+        // to feed the garbled circuit, so the comparison happens in the open and
+        // the duel is decided on public scores. DuelDecidedOnPublicScores says so.
+        bool aCompeted = duel.agentASubmitted;
+        bool bCompeted = duel.agentBSubmitted;
+
+        // Neither turned up — nothing to compare. Refund both, charge nothing.
+        if (!aCompeted && !bCompeted) {
             uint256 refund = duel.stake;
             emit DuelNoContest(duelId, refund);
             payable(duel.agentA).transfer(refund);
@@ -292,13 +324,21 @@ contract DuelManager {
             return;
         }
 
+        bool bothSettled = duel.finalASubmitted && duel.finalBSubmitted;
+        bool forfeit = !aCompeted || !bCompeted;
+
         bool aWins;
-        if (!duel.finalBSubmitted) {
-            aWins = true;   // agentB never settled — agentA wins by forfeit
-        } else if (!duel.finalASubmitted) {
-            aWins = false;  // agentA never settled — agentB wins by forfeit
+        if (!bCompeted) {
+            aWins = true;              // agentB never competed
+        } else if (!aCompeted) {
+            aWins = false;             // agentA never competed
+        } else if (bothSettled) {
+            aWins = _comparePnL(duel); // garbled circuit on the two ciphertexts
         } else {
-            aWins = _comparePnL(duel);
+            // Both competed, at least one did not settle. Decide on the public
+            // scores, which the pin would have reproduced anyway.
+            aWins = duel.agentAPnL > duel.agentBPnL;
+            emit DuelDecidedOnPublicScores(duelId);
         }
 
         address winner = aWins ? duel.agentA : duel.agentB;
@@ -306,7 +346,7 @@ contract DuelManager {
 
         duel.winner = winner;
 
-        if (!duel.finalASubmitted || !duel.finalBSubmitted) {
+        if (forfeit) {
             emit DuelForfeited(duelId, winner, loser);
         }
 

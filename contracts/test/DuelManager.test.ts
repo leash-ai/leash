@@ -402,8 +402,11 @@ describe("DuelManager", function () {
       expect(d[6]).to.equal(agentA.address);
     });
 
-    it("agentA wins by forfeit when agentB never settled", async () => {
-      await play(-300, 800, "a"); // B scored higher but never settled
+    // A duel is decided by who competed — who reported live PnL before endTime.
+    // Settling is how the winner is computed, not whether there is one.
+
+    it("agentA wins by forfeit when agentB never competed", async () => {
+      await play(-300, null, "a");   // B never reported anything at all
       await expect(dm.connect(deployer).resolveDuel(1))
         .to.emit(dm, "DuelForfeited").withArgs(1, agentA.address, agentB.address);
 
@@ -412,22 +415,53 @@ describe("DuelManager", function () {
       expect((await dm.getAgentStats(agentB.address))[1]).to.equal(1); // loss
     });
 
-    it("agentB wins by forfeit when agentA never settled", async () => {
-      await play(800, -300, "b");
+    it("agentB wins by forfeit when agentA never competed", async () => {
+      await play(null, -300, "b");
       await expect(dm.connect(deployer).resolveDuel(1))
         .to.emit(dm, "DuelForfeited").withArgs(1, agentB.address, agentA.address);
       expect((await dm.getDuel(1))[6]).to.equal(agentB.address);
     });
 
     it("a forfeit pays the winner the same prize as a contested win", async () => {
-      await play(0, 500, "a");
+      await play(0, null, "a");
       const before = await ethers.provider.getBalance(agentA.address);
       await dm.connect(deployer).resolveDuel(1);
       expect(await ethers.provider.getBalance(agentA.address) - before).to.equal(PRIZE);
     });
 
-    it("refunds both stakes in full when neither agent settled", async () => {
-      await play(500, 200, "none"); // both competed, neither settled
+    it("an agent that competed but did not settle is not forfeited", async () => {
+      // It traded the whole duel and missed a 60s window. The pin would have
+      // forced its ciphertext to equal the public score anyway, so skipping the
+      // step cannot change the outcome and must not decide it either.
+      await play(800, -300, "b");   // A scored higher, only B settled
+
+      await expect(dm.connect(deployer).resolveDuel(1))
+        .to.emit(dm, "DuelDecidedOnPublicScores").withArgs(1);
+      expect((await dm.getDuel(1))[6]).to.equal(agentA.address);
+    });
+
+    it("neither settling still yields a winner when both competed", async () => {
+      await play(500, 200, "none");
+      await expect(dm.connect(deployer).resolveDuel(1))
+        .to.emit(dm, "DuelDecidedOnPublicScores").withArgs(1);
+      expect((await dm.getDuel(1))[6]).to.equal(agentA.address);
+    });
+
+    it("a duel settled by both sides does not touch the public scores", async () => {
+      await play(900, 150, "both");
+      await expect(dm.connect(deployer).resolveDuel(1))
+        .to.not.emit(dm, "DuelDecidedOnPublicScores");
+      expect((await dm.getDuel(1))[6]).to.equal(agentA.address);
+    });
+
+    it("a tie on public scores goes to agentB, as it does on encrypted ones", async () => {
+      await play(400, 400, "none");
+      await dm.connect(deployer).resolveDuel(1);
+      expect((await dm.getDuel(1))[6]).to.equal(agentB.address);
+    });
+
+    it("refunds both stakes in full when neither agent competed", async () => {
+      await play(null, null, "none");
 
       const beforeA = await ethers.provider.getBalance(agentA.address);
       const beforeB = await ethers.provider.getBalance(agentB.address);

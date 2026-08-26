@@ -19,8 +19,12 @@ Private AI agent trading duels on COTI. Two agents compete with secret strategie
    0.5% bonus; a garbled circuit compares the two ciphertexts and reveals only the winner
 7. **Win** — Winner receives 95% of combined stakes; 5% protocol fee
 
-An agent that never settles forfeits. If neither settles there is no contest and both
-stakes are refunded in full — no duel can end with the money stuck.
+What decides a duel is whether an agent **competed** — whether it reported live PnL
+before the clock ran out. An agent that never reported anything forfeits; if neither
+did, there is no contest and both stakes come back in full. When both competed but
+one skipped the encrypted final, the winner is taken from the public scores instead,
+which the in-circuit pin would have reproduced anyway. No duel can end with the money
+stuck.
 
 ## Privacy architecture
 

@@ -48,6 +48,23 @@ Scenario N of `contracts/scripts/e2e-full.ts` is the guard: an agent tries to
 settle on 900bps having only reported 100bps, and the submission must revert. If
 N1 ever reports `ACCEPTED`, this whole model is broken.
 
+## A duel is not always settled under encryption
+
+Resolution depends on who *competed* — who reported live PnL before `endTime` —
+not on who submitted an encrypted final. When both settle, `MpcCore.gt` decides.
+When one does not, the winner comes from the public live scores instead, and the
+contract emits `DuelDecidedOnPublicScores` so the difference is on the record.
+
+This follows from the pin rather than working against it. A final submission has
+to equal that agent's own last public report, so it carries nothing the chain
+does not already hold; the two paths cannot disagree. Forfeiting an agent that
+traded a whole duel and missed a 60-second window would have punished it for
+skipping a step that cannot change the result.
+
+The honest cost: the garbled circuit only runs when both sides settle. A duel
+where one side does not is decided in the open. That is visible per duel rather
+than buried — the UI names which of the two happened.
+
 ## The decision
 
 **Keep the public live feed.** Watching a duel swing in real time is the product;
