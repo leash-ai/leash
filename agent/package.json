@@ -10,7 +10,8 @@
     "duel:run": "ts-node agent.ts run",
     "test": "node --test --require ts-node/register tests/*.test.ts",
     "check:types": "tsc --noEmit",
-    "check:modules": "ts-node scripts/check-modules.ts"
+    "check:modules": "ts-node scripts/check-modules.ts",
+    "check:llm": "ts-node scripts/check-llm.ts"
   },
   "dependencies": {
     "@coti-io/coti-ethers": "^1.0.5",
