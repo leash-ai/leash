@@ -6,17 +6,31 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * One stake, three lengths, three strategies.
+ *
+ * A free-text stake and five durations meant two duels almost never matched, and
+ * an unmatched duel is a page that says "waiting for opponent" until you close
+ * it. Everyone putting up the same amount is what makes a challenge joinable by
+ * anyone who happens to be looking.
+ */
+const STAKE_COTI = "0.1";
+
 const DURATIONS = [
-  { label: "1 min", value: 60 },
-  { label: "2 min", value: 120 },
-  { label: "5 min", value: 300 },
-  { label: "1 hour", value: 3600 },
-  { label: "24 hours", value: 86400 },
+  { label: "2 min", sub: "quick", value: 120 },
+  { label: "10 min", sub: "a real race", value: 600 },
+  { label: "1 hour", sub: "let it run", value: 3600 },
+];
+
+const STRATEGIES = [
+  { id: "momentum", name: "Momentum", desc: "Buys whatever is climbing fastest" },
+  { id: "meanReversion", name: "Mean reversion", desc: "Buys what has fallen, expects a bounce" },
+  { id: "marketMaker", name: "Market maker", desc: "Works both sides, takes small edges" },
 ];
 
 export function CreateDuelModal({ onClose }: Props) {
-  const [stake, setStake] = useState("0.1");
-  const [duration, setDuration] = useState(120);
+  const [duration, setDuration] = useState(600);
+  const [strategy, setStrategy] = useState("momentum");
   const [creating, setCreating] = useState(false);
   const [duelId, setDuelId] = useState<number | null>(null);
 
@@ -71,7 +85,7 @@ export function CreateDuelModal({ onClose }: Props) {
       );
 
       const tx = await contract.createDuel(duration, {
-        value: ethers.parseEther(stake),
+        value: ethers.parseEther(STAKE_COTI),
       });
 
       const receipt = await tx.wait();
@@ -82,6 +96,19 @@ export function CreateDuelModal({ onClose }: Props) {
       if (event) {
         const id = parseInt(event.topics[1], 16);
         setDuelId(id);
+
+        // Hand the duel to the agent server so the creator's side actually
+        // trades. Without this you stake, watch a flat line and lose by forfeit
+        // — which is precisely what happened the first time a duel was created
+        // from this page. Best effort: the duel exists either way.
+        const agentUrl = process.env.NEXT_PUBLIC_AGENT_URL;
+        if (agentUrl) {
+          fetch(`${agentUrl}/agent/duel/${id}/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ strategy }),
+          }).catch(() => {});
+        }
       }
     } catch (e: unknown) {
       const err = e as Error;
@@ -126,67 +153,85 @@ export function CreateDuelModal({ onClose }: Props) {
 
             <div className="space-y-5">
               <div>
-                <label className="text-sm text-zinc-400 block mb-2">Stake (COTI)</label>
-                <input
-                  type="number"
-                  value={stake}
-                  onChange={(e) => setStake(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 font-mono focus:outline-none focus:border-[#00ff88] transition-colors"
-                  step="0.01"
-                  min="0.01"
-                />
+                <label className="text-sm text-zinc-400 block mb-2">Your strategy</label>
+                <div className="space-y-2">
+                  {STRATEGIES.map((st) => (
+                    <button
+                      key={st.id}
+                      onClick={() => setStrategy(st.id)}
+                      className={`w-full text-left border rounded-lg px-4 py-2.5 transition-colors ${
+                        strategy === st.id
+                          ? "border-[#00ff88] bg-[#00ff88]/10"
+                          : "border-zinc-700 hover:border-zinc-500"
+                      }`}
+                    >
+                      <div className={`text-sm font-bold ${strategy === st.id ? "text-[#00ff88]" : "text-zinc-300"}`}>
+                        {st.name}
+                      </div>
+                      <div className="text-xs text-zinc-500 font-mono">{st.desc}</div>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-zinc-600 font-mono mt-2">
+                  It runs on your machine. Nobody sees it, including your opponent.
+                </p>
               </div>
 
               <div>
-                <label className="text-sm text-zinc-400 block mb-2">Duration</label>
-                <div className="grid grid-cols-2 gap-2">
+                <label className="text-sm text-zinc-400 block mb-2">How long</label>
+                <div className="grid grid-cols-3 gap-2">
                   {DURATIONS.map((d) => (
                     <button
                       key={d.value}
                       onClick={() => setDuration(d.value)}
-                      className={`border rounded-lg py-2.5 text-sm font-mono transition-colors ${
+                      className={`border rounded-lg py-2 transition-colors ${
                         duration === d.value
                           ? "border-[#00ff88] text-[#00ff88] bg-[#00ff88]/10"
                           : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
                       }`}
                     >
-                      {d.label}
+                      <div className="text-sm font-mono">{d.label}</div>
+                      <div className="text-[10px] text-zinc-600">{d.sub}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="border border-zinc-800 rounded-lg p-4 text-sm text-zinc-500 font-mono">
-                <div className="flex justify-between mb-1">
-                  <span>Your stake</span>
-                  <span>{stake} COTI</span>
+              <div className="border border-zinc-800 rounded-lg p-4 text-sm font-mono">
+                <div className="flex justify-between text-zinc-500 mb-1">
+                  <span>Stake — same for both sides</span>
+                  <span className="text-zinc-300">{STAKE_COTI} COTI</span>
                 </div>
-                <div className="flex justify-between mb-1">
-                  <span>Opponent stake</span>
-                  <span>{stake} COTI</span>
-                </div>
-                <div className="flex justify-between mb-1 text-zinc-600">
+                <div className="flex justify-between text-zinc-600 mb-2">
                   <span>Protocol fee</span>
                   <span>5%</span>
                 </div>
-                <div className="border-t border-zinc-800 mt-2 pt-2 flex justify-between font-bold text-white">
-                  <span>Prize pool</span>
-                  <span className="text-[#00ff88]">{(parseFloat(stake) * 2 * 0.95).toFixed(4)} COTI</span>
+                <div className="border-t border-zinc-800 pt-2 flex justify-between font-bold text-white">
+                  <span>Winner takes</span>
+                  <span className="text-[#00ff88]">
+                    {(parseFloat(STAKE_COTI) * 2 * 0.95).toFixed(3)} COTI
+                  </span>
                 </div>
               </div>
+
+              <p className="text-[11px] text-zinc-600 font-mono leading-relaxed">
+                If nobody takes the challenge within twenty seconds, a house bot does — so
+                the clock always starts.
+              </p>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleCreate}
                 disabled={creating}
-                className="flex-1 bg-[#00ff88] text-black font-bold py-3 rounded-lg hover:bg-[#00cc6a] transition-colors disabled:opacity-50"
+                className="flex-1 bg-[#00ff88] text-black font-bold py-3 rounded-lg hover:bg-[#00cc6a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {creating ? "Creating..." : "Create Duel"}
+                {creating ? "Creating…" : `Challenge — ${STAKE_COTI} COTI`}
               </button>
               <button
                 onClick={onClose}
-                className="border border-zinc-700 px-6 py-3 rounded-lg hover:border-zinc-500 transition-colors"
+                disabled={creating}
+                className="px-6 border border-zinc-700 rounded-lg text-zinc-400 hover:border-zinc-500 disabled:opacity-50 transition-colors"
               >
                 Cancel
               </button>

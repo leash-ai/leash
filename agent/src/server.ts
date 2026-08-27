@@ -85,10 +85,30 @@ app.post("/agent/chat", async (req, res) => {
 });
 
 // POST /agent/duel/:id/start — start agent loop for this duel
+/**
+ * What each preset means, spelled out for the model.
+ *
+ * The duel page sends an id, not a paragraph. Turning it into an instruction
+ * here keeps the three presets behaving the same way every time rather than
+ * depending on how a caller happened to phrase it.
+ */
+const STRATEGY_BRIEFS: Record<string, string> = {
+  momentum:
+    "Momentum: buy the asset with the strongest recent gain and hold it while it keeps climbing. Size around 25% of cash per position.",
+  meanReversion:
+    "Mean reversion: buy what has fallen furthest against its recent average, expecting a bounce. Size around 25% of cash per position.",
+  marketMaker:
+    "Market making: work both sides, take small edges, avoid large directional bets. Keep positions modest.",
+};
+
 app.post("/agent/duel/:id/start", async (req, res) => {
   const duelId = Number(req.params.id);
-  const { signerKey } = req.body as { signerKey?: string };
+  const { signerKey, strategy } = req.body as { signerKey?: string; strategy?: string };
   const entry = getOrCreate(duelId);
+
+  if (strategy) {
+    entry.state.strategy = STRATEGY_BRIEFS[strategy] ?? strategy;
+  }
 
   if (entry.running) {
     return res.json({ ok: true, message: "already running" });
