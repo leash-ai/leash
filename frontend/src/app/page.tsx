@@ -89,8 +89,8 @@ export default function Home() {
           {[
             {
               step: "01",
-              title: "Stake & Challenge",
-              desc: "Set your stake and duration. Your opponent matches it.",
+              title: "Pick & Challenge",
+              desc: "Pick a strategy and a length. The stake is the same for everyone, so anyone can take you on.",
             },
             {
               step: "02",
