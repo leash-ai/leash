@@ -1,4 +1,4 @@
-import { LlmClient, makeLlmClient } from "./llm";
+import { ChatMessage, LlmClient, makeLlmClient } from "./llm";
 import {
   Portfolio,
   createPortfolio,
@@ -60,6 +60,41 @@ export class TradingAgent {
   private client(): LlmClient {
     if (!this.llm) this.llm = makeLlmClient();
     return this.llm;
+  }
+
+  /**
+   * Turn a conversation into a bot: a name and a brief the trading agent can act
+   * on without the conversation.
+   *
+   * Returns whatever the model said even when the JSON is malformed — a reply
+   * the user can read beats an error, and `ready:false` simply means the UI keeps
+   * the conversation going rather than offering to save.
+   */
+  async design(
+    systemPrompt: string,
+    history: { role: string; content: string }[],
+  ): Promise<{ reply: string; ready: boolean; name?: string; strategy?: string }> {
+    const raw = await this.client().complete(
+      [{ role: "system", content: systemPrompt }, ...(history as ChatMessage[])],
+      400,
+      0.4,
+    );
+
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return { reply: raw.trim() || "…", ready: false };
+
+    try {
+      const p = JSON.parse(match[0]);
+      const ready = p.ready === true && !!p.name && !!p.strategy;
+      return {
+        reply: String(p.reply ?? "").trim() || "…",
+        ready,
+        name: ready ? String(p.name).slice(0, 40) : undefined,
+        strategy: ready ? String(p.strategy).slice(0, 600) : undefined,
+      };
+    } catch {
+      return { reply: raw.trim().slice(0, 400), ready: false };
+    }
   }
 
   async chat(state: AgentState, userMessage: string): Promise<string> {

@@ -84,6 +84,49 @@ app.post("/agent/chat", async (req, res) => {
   }
 });
 
+/**
+ * POST /agent/bot/design — build a bot by talking about it.
+ *
+ * The duel form used to offer three fixed strategies, which made the model
+ * decorative: it ran a preset someone else wrote. Here the conversation is the
+ * point — you describe how you want to trade and this turns it into the brief
+ * the trading agent will actually follow.
+ *
+ * The model answers as JSON so the reply and the finished bot arrive together;
+ * `ready` is what tells the UI it has enough to save. If it comes back
+ * unparseable the text is still shown, because a chat that says nothing is worse
+ * than a chat that says something unstructured.
+ */
+const DESIGNER_PROMPT = `You help someone design an automated trading bot for a short duel — minutes, not days — on BTC, ETH and SOL.
+
+Ask at most one short clarifying question. As soon as you have a usable idea, produce the bot: do not interrogate.
+
+Reply with JSON only, no prose outside it:
+{"reply":"<one or two sentences to the user>","ready":<true|false>,"name":"<2-3 word bot name>","strategy":"<precise instruction the trading agent follows: what to buy, when, how big, when to exit>"}
+
+Set ready=false only while you are still asking. When ready=true, name and strategy must both be filled in. Keep strategy concrete and self-contained — it is handed to another agent with no memory of this conversation.`;
+
+app.post("/agent/bot/design", async (req, res) => {
+  const { messages } = req.body as { messages?: { role: string; content: string }[] };
+  if (!messages?.length) return res.status(400).json({ error: "messages required" });
+
+  try {
+    const reply = await ai.design(DESIGNER_PROMPT, messages.slice(-12));
+    res.json(reply);
+  } catch (e: any) {
+    const raw = String(e?.message ?? "");
+    const keyVar = process.env.AI_BASE_URL ? "AI_API_KEY" : "MISTRAL_API_KEY";
+    const unusable =
+      raw.includes("No LLM configured") || raw.includes("402") ||
+      /subscription|quota|credit|insufficient|401|403|unauthor/i.test(raw);
+    res.status(unusable ? 503 : 500).json({
+      error: unusable
+        ? `Designing a bot needs a working ${keyVar}.`
+        : `Agent error: ${raw.slice(0, 160)}`,
+    });
+  }
+});
+
 // POST /agent/duel/:id/start — start agent loop for this duel
 /**
  * What each preset means, spelled out for the model.
