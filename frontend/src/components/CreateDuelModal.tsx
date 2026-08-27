@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useMyBots } from "@/hooks/useMyBots";
+import { CreateBotModal } from "./CreateBotModal";
 
 interface Props {
   onClose: () => void;
@@ -22,15 +24,15 @@ const DURATIONS = [
   { label: "1 hour", sub: "let it run", value: 3600 },
 ];
 
-const STRATEGIES = [
-  { id: "momentum", name: "Momentum", desc: "Buys whatever is climbing fastest" },
-  { id: "meanReversion", name: "Mean reversion", desc: "Buys what has fallen, expects a bounce" },
-  { id: "marketMaker", name: "Market maker", desc: "Works both sides, takes small edges" },
-];
+
 
 export function CreateDuelModal({ onClose }: Props) {
   const [duration, setDuration] = useState(600);
-  const [strategy, setStrategy] = useState("momentum");
+  const { bots, addBot, loaded } = useMyBots();
+  const [botId, setBotId] = useState<string | null>(null);
+  const [designing, setDesigning] = useState(false);
+
+  const selected = bots.find((b) => b.id === botId) ?? bots[0] ?? null;
   const [creating, setCreating] = useState(false);
   const [duelId, setDuelId] = useState<number | null>(null);
 
@@ -106,7 +108,7 @@ export function CreateDuelModal({ onClose }: Props) {
           fetch(`${agentUrl}/agent/duel/${id}/start`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ strategy }),
+            body: JSON.stringify({ strategy: selected?.strategy }),
           }).catch(() => {});
         }
       }
@@ -118,6 +120,19 @@ export function CreateDuelModal({ onClose }: Props) {
       setCreating(false);
     }
   };
+
+  if (designing) {
+    return (
+      <CreateBotModal
+        onClose={() => setDesigning(false)}
+        onCreated={(name, strategy) => {
+          const bot = addBot(name, strategy);
+          setBotId(bot.id);          // straight into the duel with it selected
+          setDesigning(false);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -153,25 +168,51 @@ export function CreateDuelModal({ onClose }: Props) {
 
             <div className="space-y-5">
               <div>
-                <label className="text-sm text-zinc-400 block mb-2">Your strategy</label>
-                <div className="space-y-2">
-                  {STRATEGIES.map((st) => (
+                <div className="flex items-baseline justify-between mb-2">
+                  <label className="text-sm text-zinc-400">Your bot</label>
+                  {bots.length > 0 && (
                     <button
-                      key={st.id}
-                      onClick={() => setStrategy(st.id)}
-                      className={`w-full text-left border rounded-lg px-4 py-2.5 transition-colors ${
-                        strategy === st.id
-                          ? "border-[#00ff88] bg-[#00ff88]/10"
-                          : "border-zinc-700 hover:border-zinc-500"
-                      }`}
+                      onClick={() => setDesigning(true)}
+                      className="text-xs font-mono text-[#00ff88] hover:underline"
                     >
-                      <div className={`text-sm font-bold ${strategy === st.id ? "text-[#00ff88]" : "text-zinc-300"}`}>
-                        {st.name}
-                      </div>
-                      <div className="text-xs text-zinc-500 font-mono">{st.desc}</div>
+                      + new bot
                     </button>
-                  ))}
+                  )}
                 </div>
+
+                {!loaded ? null : bots.length === 0 ? (
+                  <button
+                    onClick={() => setDesigning(true)}
+                    className="w-full border border-dashed border-zinc-700 rounded-lg px-4 py-6 text-center hover:border-[#00ff88] transition-colors group"
+                  >
+                    <div className="text-sm font-bold text-zinc-300 group-hover:text-[#00ff88]">
+                      Create your first bot
+                    </div>
+                    <div className="text-xs text-zinc-600 font-mono mt-1">
+                      Describe how it should trade — the AI writes the strategy
+                    </div>
+                  </button>
+                ) : (
+                  <div className="space-y-2 max-h-52 overflow-y-auto">
+                    {bots.map((b) => (
+                      <button
+                        key={b.id}
+                        onClick={() => setBotId(b.id)}
+                        className={`w-full text-left border rounded-lg px-4 py-2.5 transition-colors ${
+                          selected?.id === b.id
+                            ? "border-[#00ff88] bg-[#00ff88]/10"
+                            : "border-zinc-700 hover:border-zinc-500"
+                        }`}
+                      >
+                        <div className={`text-sm font-bold ${selected?.id === b.id ? "text-[#00ff88]" : "text-zinc-300"}`}>
+                          {b.name}
+                        </div>
+                        <div className="text-xs text-zinc-500 font-mono line-clamp-2">{b.strategy}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <p className="text-[11px] text-zinc-600 font-mono mt-2">
                   It runs on your machine. Nobody sees it, including your opponent.
                 </p>
@@ -223,10 +264,14 @@ export function CreateDuelModal({ onClose }: Props) {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleCreate}
-                disabled={creating}
+                disabled={creating || !selected}
                 className="flex-1 bg-[#00ff88] text-black font-bold py-3 rounded-lg hover:bg-[#00cc6a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {creating ? "Creating…" : `Challenge — ${STAKE_COTI} COTI`}
+                {creating
+                  ? "Creating…"
+                  : selected
+                    ? `Send ${selected.name} — ${STAKE_COTI} COTI`
+                    : "Create a bot first"}
               </button>
               <button
                 onClick={onClose}

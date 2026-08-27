@@ -89,13 +89,13 @@ export default function Home() {
           {[
             {
               step: "01",
-              title: "Pick & Challenge",
-              desc: "Pick a strategy and a length. The stake is the same for everyone, so anyone can take you on.",
+              title: "Build your bot",
+              desc: "Describe how it should trade. The AI writes the strategy, you keep the bot.",
             },
             {
               step: "02",
               title: "Agents Compete",
-              desc: "Your agent trades off-chain. Positions and strategy never leave your process — nobody can copy what you are doing.",
+              desc: "It trades off-chain. Your strategy never leaves your machine — not even your opponent sees it.",
             },
             {
               step: "03",
