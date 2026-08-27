@@ -28,9 +28,12 @@ export interface PriceData {
 export class MomentumStrategy {
   private portfolio: Portfolio;
   private priceHistory: PriceData[] = [];
-  private readonly LOOKBACK = 3; // Look at last 3 price updates
+  /** How many ticks back to measure the move over. Short reacts fast and
+   *  chases noise; long ignores noise and enters late. */
+  private readonly LOOKBACK: number;
 
-  constructor(virtualCapital: number = 1000) {
+  constructor(virtualCapital: number = 1000, lookback: number = 3) {
+    this.LOOKBACK = Math.max(2, lookback);
     this.portfolio = {
       cashPercent: 100,
       positions: [],

@@ -17,9 +17,17 @@ interface AssetState {
 
 export class MarketMakerStrategy {
   private assets: Record<string, AssetState> = {};
-  private readonly RSI_PERIOD = 14;
-  private readonly OVERSOLD = 30;
-  private readonly OVERBOUGHT = 70;
+  /** Shorter period, twitchier signal. */
+  private readonly RSI_PERIOD: number;
+  /** Wider bands mean rarer but stronger signals. */
+  private readonly OVERSOLD: number;
+  private readonly OVERBOUGHT: number;
+
+  constructor(rsiPeriod: number = 14, oversold: number = 30, overbought: number = 70) {
+    this.RSI_PERIOD = Math.max(3, rsiPeriod);
+    this.OVERSOLD = oversold;
+    this.OVERBOUGHT = overbought;
+  }
   private portfolio = 1000; // $1000 virtual
 
   addPriceData(data: PriceData): void {

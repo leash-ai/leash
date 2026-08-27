@@ -16,8 +16,16 @@ export class MeanReversionStrategy {
     currentPrice: number;
   }> = [];
 
-  private readonly WINDOW = 5;
-  private readonly THRESHOLD = 0.02; // 2% deviation to trigger
+  /** Average over this many ticks. */
+  private readonly WINDOW: number;
+  /** How far from the average before acting. Low trades often on small
+   *  dislocations; high waits for real ones and trades rarely. */
+  private readonly THRESHOLD: number;
+
+  constructor(window: number = 5, threshold: number = 0.02) {
+    this.WINDOW = Math.max(2, window);
+    this.THRESHOLD = threshold;
+  }
 
   addPriceData(prices: PriceData) {
     this.priceHistory.push(prices);
