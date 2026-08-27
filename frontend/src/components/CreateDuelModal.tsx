@@ -215,8 +215,8 @@ export function CreateDuelModal({ onClose }: Props) {
               </div>
 
               <p className="text-[11px] text-zinc-600 font-mono leading-relaxed">
-                If nobody takes the challenge within twenty seconds, a house bot does — so
-                the clock always starts.
+                One of our bots takes the challenge the moment you make it. Which one is
+                random — six of them, each playing differently.
               </p>
             </div>
 

@@ -21,6 +21,7 @@ const MODULES = [
   "../src/llm",
   "../marketData",
   "../strategies/factory",
+  "../strategies/roster",
   "../strategies/warmup",
   "../messaging/commandChannel",
   "../messaging/sdk",

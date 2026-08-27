@@ -12,15 +12,19 @@
  * no latency to speak of and cannot fail because a provider is down. Which
  * strategy it picks rotates per duel, so repeat matches are not repeat results.
  *
+ * Which opponent you draw is random — see strategies/roster.ts. Knowing who you
+ * face lets you tune against them, and a duel where the counter is known is not
+ * much of a duel.
+ *
  *   npx ts-node houseBot.ts
  *
- * Env: HOUSE_BOT_GRACE_MS  wait before joining          (default 20000)
+ * Env: HOUSE_BOT_GRACE_MS  wait before joining, ms      (default 0 — immediate)
  *      HOUSE_BOT_MAX_STAKE most it will match, in COTI  (default 0.5)
  */
 import { ethers } from "ethers";
 import dotenv from "dotenv";
 import { PriceData } from "./strategies/momentum";
-import { makeStrategy, StrategyName } from "./strategies/factory";
+import { drawOpponent } from "./strategies/roster";
 import { warmUpStrategy } from "./strategies/warmup";
 import { fetchPrices } from "./marketData";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
@@ -30,7 +34,10 @@ dotenv.config();
 const RPC = process.env.COTI_RPC || "https://testnet.coti.io/rpc";
 const DM_ADDR = process.env.DUEL_MANAGER_ADDRESS!;
 const KEY = process.env.HOUSE_BOT_PRIVATE_KEY || process.env.AGENT_PRIVATE_KEY!;
-const GRACE_MS = Number(process.env.HOUSE_BOT_GRACE_MS || 20_000);
+// Zero by default: a challenge should start the moment it is made. Waiting was
+// meant to leave room for a human to take the match first, but an empty page for
+// twenty seconds is a worse outcome than a bot answering fast.
+const GRACE_MS = Number(process.env.HOUSE_BOT_GRACE_MS ?? 0);
 const MAX_STAKE = ethers.parseEther(process.env.HOUSE_BOT_MAX_STAKE || "0.5");
 const TICK_MS = Number(process.env.UPDATE_INTERVAL_MS || 30_000);
 
@@ -41,7 +48,6 @@ const DUEL_ABI = [
   "function updateLivePnL(uint256 duelId, int256 pnlBps)",
 ];
 
-const ROTATION: StrategyName[] = ["momentum", "meanReversion", "marketMaker"];
 const log = (m: string) => console.log(`[${new Date().toTimeString().slice(0, 8)}] ${m}`);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -50,8 +56,8 @@ const busy = new Set<string>();
 async function play(duelId: bigint, wallet: ethers.Wallet) {
   const dm = new ethers.Contract(DM_ADDR, DUEL_ABI, wallet);
 
-  // Someone may join in the meantime; that is the good outcome, not a failure.
-  await sleep(GRACE_MS);
+  // Only if a grace period was asked for; by default there is none.
+  if (GRACE_MS > 0) await sleep(GRACE_MS);
   let d = await dm.getDuel(duelId);
   if (Number(d[5]) !== 0) { log(`duel ${duelId} — already taken, leaving it`); return; }
 
@@ -72,10 +78,12 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
   // endTime only becomes a timestamp once someone joins.
   d = await dm.getDuel(duelId);
   const endTime = Number(d[4]) * 1000;
-  const name = ROTATION[Number(duelId) % ROTATION.length];
-  log(`duel ${duelId} — joined for ${ethers.formatEther(stake)} COTI, playing ${name}`);
 
-  const strategy = makeStrategy(name);
+  const opponent = drawOpponent();
+  log(`duel ${duelId} — joined for ${ethers.formatEther(stake)} COTI`);
+  log(`duel ${duelId} — you drew ${opponent.name}: ${opponent.style}`);
+
+  const strategy = opponent.build();
   const warm = await warmUpStrategy(strategy);
   if (!warm.points) log(`duel ${duelId} — starting cold (${warm.error ?? "unknown"})`);
 
