@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useActiveDuels } from "@/hooks/useActiveDuels";
+import { opponentFor } from "@/lib/houseRoster";
+
+const HOUSE_ADDRESS = process.env.NEXT_PUBLIC_HOUSE_BOT_ADDRESS?.toLowerCase() ?? null;
 
 export function LiveDuelList() {
   const { duels, loading } = useActiveDuels();
@@ -27,6 +30,14 @@ export function LiveDuelList() {
         const minutes = Math.floor((remaining % 3600000) / 60000);
         const prize = (Number(duel.stake) * 2 * 0.95) / 1e18;
 
+        // The house side is derivable from the chain, so show the bot rather than
+        // its wallet. A list of address pairs tells you nothing about who is racing.
+        const house = opponentFor(duel.id, Number(duel.startTime));
+        const name = (address: string) =>
+          HOUSE_ADDRESS && address.toLowerCase() === HOUSE_ADDRESS && house
+            ? house.name
+            : `${address.slice(0, 8)}...`;
+
         return (
           <Link
             key={duel.id}
@@ -40,12 +51,12 @@ export function LiveDuelList() {
 
             <div className="flex-1">
               <div className="flex items-center gap-2 text-sm">
-                <span className="font-mono text-zinc-400 truncate w-24">{duel.agentA.slice(0, 8)}...</span>
+                <span className="font-mono text-zinc-400 truncate w-28">{name(duel.agentA)}</span>
                 <span className="text-zinc-600">vs</span>
-                <span className="font-mono text-zinc-400 truncate w-24">
+                <span className="font-mono text-zinc-400 truncate w-28">
                   {duel.agentB === "0x0000000000000000000000000000000000000000"
                     ? "waiting..."
-                    : `${duel.agentB.slice(0, 8)}...`}
+                    : name(duel.agentB)}
                 </span>
               </div>
             </div>

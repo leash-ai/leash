@@ -13,6 +13,8 @@ interface DuelSummary {
   agentA: string;
   agentB: string;
   stake: bigint;
+  /** block.timestamp at join — what the opponent draw is derived from. */
+  startTime: bigint;
   endTime: bigint;
   state: number;
 }
@@ -55,6 +57,7 @@ export function useActiveDuels() {
             agentA: d.agentA,
             agentB: d.agentB,
             stake: d.stake,
+            startTime: d.startTime,
             endTime: d.endTime,
             state,
           });

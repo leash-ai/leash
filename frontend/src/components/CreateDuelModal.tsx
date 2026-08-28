@@ -16,6 +16,9 @@ interface Props {
  * it. Everyone putting up the same amount is what makes a challenge joinable by
  * anyone who happens to be looking.
  */
+/** Where the creator's side is driven from. Unset means it is not driven at all. */
+const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || null;
+
 const STAKE_COTI = "0.1";
 
 const DURATIONS = [
@@ -104,9 +107,8 @@ export function CreateDuelModal({ onClose }: Props) {
         // trades. Without this you stake, watch a flat line and lose by forfeit
         // — which is precisely what happened the first time a duel was created
         // from this page. Best effort: the duel exists either way.
-        const agentUrl = process.env.NEXT_PUBLIC_AGENT_URL;
-        if (agentUrl) {
-          fetch(`${agentUrl}/agent/duel/${id}/start`, {
+        if (AGENT_URL) {
+          fetch(`${AGENT_URL}/agent/duel/${id}/start`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ strategy: selected?.strategy }),
@@ -260,6 +262,26 @@ export function CreateDuelModal({ onClose }: Props) {
                 One of our bots takes the challenge the moment you make it. Which one is
                 random — six of them, each playing differently.
               </p>
+
+              {/*
+                Said before the stake leaves, not after.
+
+                The house side is rules in a daemon and always plays. Your side is
+                the agent runtime, and this deployment has none — so your bot posts
+                nothing, your curve stays flat, and you lose a duel you never got to
+                play. That is worth a sentence in front of the button rather than a
+                discovery on the duel page.
+              */}
+              {!AGENT_URL && (
+                <div className="border border-yellow-600/40 bg-yellow-600/5 rounded-lg p-3 text-[11px] font-mono leading-relaxed text-yellow-500/90">
+                  No agent server is configured here, so <strong>{selected?.name ?? "your bot"}</strong>{" "}
+                  will not trade — it stakes, sits still and loses. Run the agent locally
+                  (<span className="text-yellow-300">npm run dev</span> in{" "}
+                  <span className="text-yellow-300">agent/</span>) and set{" "}
+                  <span className="text-yellow-300">NEXT_PUBLIC_AGENT_URL</span> to play for
+                  real. You can still create one to watch the house bot run.
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 mt-6">
