@@ -69,9 +69,34 @@ export const ROSTER: Opponent[] = [
 ];
 
 /**
- * Draw an opponent. Random on purpose: knowing who you face lets you tune
- * against them, and a duel where the counter is known is not much of a duel.
+ * Which opponent a duel drew.
+ *
+ * Not Math.random, and not because randomness was wrong — it was unrecoverable.
+ * A draw nobody can reproduce lives only in this process's logs, so the page you
+ * watch the duel on can never tell you who you are up against, and "you might
+ * face any of six" stays a claim rather than something you see.
+ *
+ * Hashing (duelId, startTime) keeps both properties at once. startTime is
+ * block.timestamp at the moment someone joins, so it does not exist yet while
+ * you are picking your bot — there is still nothing to tune against, even though
+ * ids are sequential and guessable. Afterwards both sides derive the same name
+ * from what the chain already stores, with no event and no index.
+ *
+ * FNV-1a, 32-bit, mirrored byte for byte in frontend/src/lib/houseRoster.ts. The
+ * arithmetic has to agree exactly across the two, which is why it is spelled out
+ * rather than borrowed: Math.imul keeps the multiply in 32 bits on both sides,
+ * and >>> 0 keeps the result unsigned.
  */
-export function drawOpponent(): Opponent {
-  return ROSTER[Math.floor(Math.random() * ROSTER.length)];
+export function houseIndex(duelId: number, startTime: number): number {
+  let h = 0x811c9dc5;
+  for (const ch of `${duelId}:${startTime}`) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % ROSTER.length;
+}
+
+/** The opponent this duel drew. */
+export function drawOpponent(duelId: number, startTime: number): Opponent {
+  return ROSTER[houseIndex(duelId, startTime)];
 }

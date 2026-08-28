@@ -77,9 +77,11 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
 
   // endTime only becomes a timestamp once someone joins.
   d = await dm.getDuel(duelId);
+  const startTime = Number(d[3]);
   const endTime = Number(d[4]) * 1000;
 
-  const opponent = drawOpponent();
+  // Derived from what the chain stores, so the duel page names the same bot.
+  const opponent = drawOpponent(Number(duelId), startTime);
   log(`duel ${duelId} — joined for ${ethers.formatEther(stake)} COTI`);
   log(`duel ${duelId} — you drew ${opponent.name}: ${opponent.style}`);
 
