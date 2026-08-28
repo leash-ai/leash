@@ -152,7 +152,13 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
           one.
           <br />
           <br />
-          Everything on this page above is read straight from the chain and does
+          It is not only the feed that is missing: your side of this duel is what
+          the agent server drives, so without one your bot posts nothing and the
+          curve above stays flat. The house bot is rules in its own process and
+          plays either way.
+          <br />
+          <br />
+          Everything else on this page is read straight from the chain and does
           not depend on it — scores, settlement and resolution all work without an
           agent server.
         </p>
