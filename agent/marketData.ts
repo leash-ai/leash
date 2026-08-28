@@ -19,24 +19,37 @@ const SPOT_URL =
   "?ids=bitcoin,ethereum,solana&vs_currencies=usd";
 
 /**
- * Fallback used when the price API is unreachable.
+ * Placeholders for a cold start, and nothing else.
  *
- * Every strategy scores itself on price *changes*, so a duel running entirely on
- * these is a flat 0% for both sides rather than a wrong result — the numbers only
- * need to be plausible, not current.
+ * They used to be returned on every failed fetch, on the reasoning that
+ * strategies score on price *changes* so a duel spent entirely on them is a flat
+ * 0%. The reasoning holds only if every tick is a fallback. In practice
+ * CoinGecko's free tier rate-limits mid-duel and the ticks alternate — and these
+ * numbers are a different price level, not a continuation, so a position opened
+ * at the real SOL is suddenly marked 40% away and the score jumps by double
+ * digits. That number goes on-chain, and settlement pins to the last one.
+ *
+ * They also disagreed with src/prices.ts, which had its own set. Which runtime
+ * you started decided how big the jump was.
  */
-const FALLBACK: Omit<PriceData, "timestamp"> = { BTC: 65_000, ETH: 3_500, SOL: 150 };
+const COLD_START: Omit<PriceData, "timestamp"> = { BTC: 65_000, ETH: 3_500, SOL: 150 };
+
+/** The last prices that were actually real. A failed fetch holds these. */
+let lastGood: Omit<PriceData, "timestamp"> | null = null;
 
 export async function fetchPrices(): Promise<PriceData> {
   try {
     const res = await axios.get(SPOT_URL, { timeout: 5000 });
-    return {
+    const prices = {
       BTC: res.data.bitcoin.usd,
       ETH: res.data.ethereum.usd,
       SOL: res.data.solana.usd,
-      timestamp: Date.now(),
     };
+    if (!prices.BTC || !prices.ETH || !prices.SOL) throw new Error("incomplete quote");
+    lastGood = prices;
+    return { ...prices, timestamp: Date.now() };
   } catch {
-    return { ...FALLBACK, timestamp: Date.now() };
+    // A missing observation means no movement, not a move to somewhere else.
+    return { ...(lastGood ?? COLD_START), timestamp: Date.now() };
   }
 }
