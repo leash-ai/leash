@@ -22,6 +22,9 @@ export default function Home() {
           </span>
         </div>
         <nav className="flex items-center gap-6">
+          <Link href="/bots" className="text-sm text-zinc-400 hover:text-white transition-colors">
+            My bots
+          </Link>
           <Link href="/leaderboard" className="text-sm text-zinc-400 hover:text-white transition-colors">
             Leaderboard
           </Link>
