@@ -3,6 +3,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 import { fetchPrices } from "./prices";
+import { scoreBps } from "../notional";
 import { TradingAgent, AgentState } from "./ai_agent";
 import { cotiWallet, submitFinalPnL } from "../coti/settlement";
 
@@ -159,21 +160,26 @@ export async function runDuel(
       emit("tick", { message: "Thinking…" });
       const decision = await ai.tick(state, prices);
 
+      // Scored on a notional position — see notional.ts. The house bot applies
+      // the same multiplier, so this decides nothing about who wins; it decides
+      // whether the margin is visible while the duel is still running.
+      const reportBps = scoreBps(decision.pnlBps);
+
       emit("trade", {
         tradeLog: decision.tradeLog,
         reasoning: decision.reasoning,
-        pnlBps: decision.pnlBps,
+        pnlBps: reportBps,
         prices,
       });
 
       // Submit PnL on-chain
       try {
-        const tx = await dm.updateLivePnL(duelId, BigInt(decision.pnlBps), {
+        const tx = await dm.updateLivePnL(duelId, BigInt(reportBps), {
           gasLimit: 200_000n,
         });
         await tx.wait();
-        lastReportedPnlBps = decision.pnlBps;
-        emit("pnl", { pnlBps: decision.pnlBps, txHash: tx.hash });
+        lastReportedPnlBps = reportBps;
+        emit("pnl", { pnlBps: reportBps, txHash: tx.hash });
       } catch (e: any) {
         emit("error", { message: `PnL submit failed: ${e.message?.slice(0, 80)}` });
       }

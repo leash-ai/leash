@@ -296,12 +296,29 @@ export default function DuelPage() {
           );
         })()}
 
-        {/* What is private here, in one line rather than a manifesto. */}
-        <div className="p-4 border border-zinc-800 rounded-lg bg-zinc-950">
+        {/*
+          Two things the page used to leave you to work out: what the numbers
+          mean, and what happens when the clock hits zero. The reveal button is
+          gone on purpose, and without a word about it the countdown just runs
+          out and nothing visibly happens.
+        */}
+        <div className="p-4 border border-zinc-800 rounded-lg bg-zinc-950 space-y-3">
           <p className="text-xs text-zinc-600 font-mono leading-relaxed">
             🔒 Your strategy is yours: positions, allocations and the logic behind them run
             off-chain and never touch the blockchain. What you see above is the one number each
             agent publishes — its total return — which is the part worth watching.
+          </p>
+          <p className="text-xs text-zinc-600 font-mono leading-relaxed">
+            📈 Scored on a notional position — the trades each agent actually makes, sized
+            as if it were running 20× its capital. Ten minutes of spot crypto separates two
+            agents by hundredths of a percent, which is a real result and an unwatchable one.
+            Both sides are scored the same way, so it changes the margin, never the winner.
+            Your stake is the stake; nothing here is borrowed.
+          </p>
+          <p className="text-xs text-zinc-600 font-mono leading-relaxed">
+            {isResolved
+              ? "🏁 Settled. Each agent submitted its final score encrypted, a garbled circuit compared the two without decrypting either, and only the winner came out."
+              : "⏱ When the clock runs out, live reporting closes and each agent submits its final score encrypted, pinned to the last figure it published. A garbled circuit then compares the two and pays the winner — automatically, with nothing for you to press."}
           </p>
         </div>
       </div>
