@@ -8,8 +8,12 @@ Private AI agent trading duels on COTI. Two agents compete with secret strategie
 
 ## How it works
 
-1. **Challenge** — Agent A creates a duel, stakes COTI, sets duration
-2. **Join** — Agent B matches the stake to start the competition
+1. **Build a bot** — describe how you want to trade and the model writes the
+   strategy. The bot is yours, it keeps a record, and it goes into as many duels
+   as you like
+2. **Challenge** — send it out with a stake and a duration. One of six house bots
+   takes the challenge immediately, and which one is random — `startTime` is
+   `block.timestamp` at the join, so there is nothing to tune against
 3. **Compete** — Each agent runs its strategy off-chain; positions and allocations never leave its own process
 4. **Report** — Agents publish live aggregate PnL every 30s (total % return, not individual positions)
 5. **Settle** — When the clock runs out, live reporting closes and each agent has a
@@ -98,26 +102,54 @@ NEXT_PUBLIC_AGENT_URL=https://your-agent-host
 Leave it unset and the duel page says so in place of the agent panel rather than
 reaching for `localhost:3001` in each visitor's browser.
 
-## Watch a duel
+One part does come along. Building a bot is a single model call on a short
+conversation — no chain, no long-lived process — so `/api/bot/design` answers it
+in the app when no agent server is configured. Set `AI_BASE_URL`, `AI_API_KEY` and
+`AI_MODEL` on the deployment (server-side; they never reach the browser) and the
+builder works on a hosted site. Any OpenAI-compatible provider does.
+
+## Run the whole thing
+
+Three processes, two commands.
 
 ```bash
-./scripts/demo-duel.sh            # 15-minute duel
-./scripts/demo-duel.sh 300        # 5-minute duel
+cd agent    && npm run daemons   # house bot + resolver, supervised
+cd agent    && npm start         # agent server — drives your side of a duel
+cd frontend && npm run dev
 ```
 
-Starts both agent daemons — one on momentum, the other on mean-reversion — rents
-an agent and puts a real duel on testnet. It prints the URL to watch and the
-command to stop the agents. Use different strategies on each side: two identical
-ones see the same prices, report the same score and tie, and a tie goes to agentB
-by rule.
+`npm run daemons` is not optional and each half fails quietly. Without the house
+bot nobody takes your challenge, so the duel sits `Open` holding your stake.
+Without the resolver duels finish and stay `Active` holding both stakes, because
+`resolveDuel` is permissionless and somebody has to call it. It restarts either
+one on exit and stops both on `Ctrl-C`.
 
-The script refuses to run while `e2e-full.ts` is going, because the daemons would
-join its duels and overwrite its scores — a failure that reads like a broken
-contract and is not one.
+`npm start` is what makes **your** side trade. Leave it out and you stake, sit
+still and lose to a bot that played — the duel form says so before you commit.
 
-Once the clock runs out both agents settle their final score encrypted, and 60
-seconds later the duel page offers a Resolve button. Anyone can press it, and
-whoever does earns the resolver bonus.
+Then open [http://localhost:3000/bots](http://localhost:3000/bots), build a bot by
+describing it, and send it out. The house joins in seconds, both curves move, and
+when the clock runs out both sides settle encrypted and the resolver picks the
+winner. The Resolve button stays as the manual path for anyone who wants the bonus.
+
+### The house roster
+
+Six opponents, tuned against duels that last minutes rather than days: `Blitz`,
+`Drift`, `Rebound`, `Contrarian`, `Scalper`, `Sentinel`. All rules over the price
+feed — no model, no API key, nothing that can stop answering because a provider is
+down, which is the one thing this roster exists to guarantee.
+
+The draw is derived from `(duelId, startTime)` rather than recorded, so the duel
+page names the same bot that played without an event or an index. A duel run
+straight from a script is the same thing the UI does:
+
+```bash
+./scripts/demo-duel.sh 300        # 5-minute duel, agents on both sides
+```
+
+It refuses to run while `e2e-full.ts` is going, because the daemons would join its
+duels and overwrite its scores — a failure that reads like a broken contract and
+is not one.
 
 ## Tests
 
