@@ -8,7 +8,12 @@ import { AgentChat } from "@/components/AgentChat";
 import { SettlementPanel } from "@/components/SettlementPanel";
 import { DuelChart } from "@/components/DuelChart";
 import { useDuelHistory } from "@/hooks/useDuelHistory";
+import { useMyBots } from "@/hooks/useMyBots";
+import { opponentFor } from "@/lib/houseRoster";
 import { ethers } from "ethers";
+
+/** Set this and the house side of a duel is named rather than left as an address. */
+const HOUSE_ADDRESS = process.env.NEXT_PUBLIC_HOUSE_BOT_ADDRESS?.toLowerCase() ?? null;
 
 // DuelState enum: Open=0, Active=1, Resolved=2
 const STATE_LABELS = ["Open", "Active", "Resolved"];
@@ -18,6 +23,7 @@ export default function DuelPage() {
   const { id } = useParams();
   const duelId = Number(id);
   const { duel, livePnL, settlement, loading, refresh } = useDuel(duelId);
+  const { bots } = useMyBots();
   const [now, setNow] = useState(Date.now());
   // Re-read the curve on the same 15s cadence the duel data uses.
   const [tick, setTick] = useState(0);
@@ -75,6 +81,54 @@ export default function DuelPage() {
    * That reading cost a real duel: agent A had no process running at all, showed
    * +0.00%, and the forfeit that followed looked arbitrary.
    */
+  /**
+   * Who each address is.
+   *
+   * Two addresses side by side say nothing about a match you are meant to watch.
+   * The house side is derivable — the bot that played picked itself from
+   * (duelId, startTime), so the same draw is recomputed here rather than stored
+   * anywhere. Your side comes from the bot you sent, which this browser
+   * remembers. Anything else stays an address, which is the honest answer.
+   */
+  const house = opponentFor(duelId, Number(duel.startTime));
+
+  const identify = (address: string, fallback: string) => {
+    if (HOUSE_ADDRESS && address.toLowerCase() === HOUSE_ADDRESS && house) {
+      return { label: "HOUSE BOT", name: house.name, note: house.style };
+    }
+    const mine = bots.find((b) => b.duelIds.includes(duelId));
+    if (mine && address.toLowerCase() === duel.agentA.toLowerCase()) {
+      return { label: "YOUR BOT", name: mine.name, note: "built by you" };
+    }
+    // Nothing names this one, so the address is the name. Repeating the generic
+    // header as a title would just look like the page failed to load something.
+    return { label: fallback, name: address, note: null };
+  };
+
+  const Side = ({ address, fallback }: { address: string; fallback: string }) => {
+    const who = identify(address, fallback);
+    return (
+      <>
+        <div className="text-xs text-zinc-500 mb-2">{who.label}</div>
+        <div
+          className={`mb-1 truncate ${
+            who.note ? "text-sm text-zinc-200" : "font-mono text-sm text-zinc-400"
+          }`}
+        >
+          {who.name}
+        </div>
+        <div className="text-[11px] text-zinc-500 mb-4 truncate h-4">{who.note}</div>
+      </>
+    );
+  };
+
+  /** The curves carry the same names as the panels above them. */
+  const chartLabel = (address: string, fallback: string) => {
+    if (address === ethers.ZeroAddress) return fallback;
+    const who = identify(address, fallback);
+    return who.note ? who.name : fallback;
+  };
+
   const Score = ({ bps, reported }: { bps: number; reported: boolean }) => {
     if (!reported) {
       return (
@@ -122,8 +176,7 @@ export default function DuelPage() {
         <div className="grid grid-cols-3 gap-4 mb-8">
           {/* Agent A */}
           <div className={`border rounded-lg p-6 ${aWinning ? "border-[#00ff88]" : "border-zinc-800"}`}>
-            <div className="text-xs text-zinc-500 mb-2">AGENT A</div>
-            <div className="font-mono text-sm text-zinc-400 mb-4 truncate">{duel.agentA}</div>
+            <Side address={duel.agentA} fallback="AGENT A" />
             <Score bps={livePnL.pnlA} reported={duel.agentASubmitted} />
             {aWinning && isActive && bothReported && (
               <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
@@ -142,12 +195,14 @@ export default function DuelPage() {
 
           {/* Agent B */}
           <div className={`border rounded-lg p-6 ${!aWinning && duel.agentB !== ethers.ZeroAddress ? "border-[#00ff88]" : "border-zinc-800"}`}>
-            <div className="text-xs text-zinc-500 mb-2">AGENT B</div>
             {duel.agentB === ethers.ZeroAddress ? (
-              <div className="text-zinc-600 text-sm mt-2">Waiting for opponent...</div>
+              <>
+                <div className="text-xs text-zinc-500 mb-2">AGENT B</div>
+                <div className="text-zinc-600 text-sm mt-2">Waiting for opponent...</div>
+              </>
             ) : (
               <>
-                <div className="font-mono text-sm text-zinc-400 mb-4 truncate">{duel.agentB}</div>
+                <Side address={duel.agentB} fallback="AGENT B" />
                 <Score bps={livePnL.pnlB} reported={duel.agentBSubmitted} />
                 {!aWinning && isActive && bothReported && (
                   <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
@@ -159,7 +214,11 @@ export default function DuelPage() {
 
         {/* The race itself. Two numbers say who leads; two curves say how. */}
         <div className="mb-8">
-          <DuelChart points={history} labelA="Agent A" labelB="Agent B" />
+          <DuelChart
+            points={history}
+            labelA={chartLabel(duel.agentA, "Agent A")}
+            labelB={chartLabel(duel.agentB, "Agent B")}
+          />
         </div>
 
         {/* Agent Chat */}
