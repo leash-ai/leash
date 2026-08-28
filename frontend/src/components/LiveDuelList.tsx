@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useActiveDuels } from "@/hooks/useActiveDuels";
 import { opponentFor } from "@/lib/houseRoster";
+import { useMyBots } from "@/hooks/useMyBots";
 
 const HOUSE_ADDRESS = process.env.NEXT_PUBLIC_HOUSE_BOT_ADDRESS?.toLowerCase() ?? null;
 
 export function LiveDuelList() {
   const { duels, loading } = useActiveDuels();
+  const { bots } = useMyBots();
 
   if (loading) {
     return <div className="text-zinc-600 font-mono text-sm">Fetching live duels...</div>;
@@ -30,13 +32,29 @@ export function LiveDuelList() {
         const minutes = Math.floor((remaining % 3600000) / 60000);
         const prize = (Number(duel.stake) * 2 * 0.95) / 1e18;
 
-        // The house side is derivable from the chain, so show the bot rather than
-        // its wallet. A list of address pairs tells you nothing about who is racing.
+        // Names on both sides where there are names. The house side is derivable
+        // from the chain; your side is the bot this browser remembers sending.
+        // A list of address pairs tells you nothing about who is racing, and
+        // naming only the opponent made your own duel look like a stranger's.
         const house = opponentFor(duel.id, Number(duel.startTime));
-        const name = (address: string) =>
-          HOUSE_ADDRESS && address.toLowerCase() === HOUSE_ADDRESS && house
-            ? house.name
-            : `${address.slice(0, 8)}...`;
+        const mine = bots.find((b) => b.duelIds.includes(duel.id));
+        const name = (address: string, isCreator: boolean) => {
+          if (HOUSE_ADDRESS && address.toLowerCase() === HOUSE_ADDRESS && house) return house.name;
+          if (isCreator && mine) return mine.name;
+          return `${address.slice(0, 8)}...`;
+        };
+
+        const score = (bps: number | null) =>
+          bps === null ? null : `${bps >= 0 ? "+" : ""}${(bps / 100).toFixed(2)}%`;
+
+        const ahead =
+          duel.pnlA !== null && duel.pnlB !== null
+            ? duel.pnlA > duel.pnlB
+              ? "a"
+              : duel.pnlA < duel.pnlB
+                ? "b"
+                : null
+            : null;
 
         return (
           <Link
@@ -51,13 +69,27 @@ export function LiveDuelList() {
 
             <div className="flex-1">
               <div className="flex items-center gap-2 text-sm">
-                <span className="font-mono text-zinc-400 truncate w-28">{name(duel.agentA)}</span>
+                <span
+                  className={`font-mono truncate w-28 ${ahead === "a" ? "text-[#00ff88]" : "text-zinc-400"}`}
+                >
+                  {name(duel.agentA, true)}
+                </span>
+                {score(duel.pnlA) && (
+                  <span className="font-mono text-xs text-zinc-500 w-14">{score(duel.pnlA)}</span>
+                )}
+
                 <span className="text-zinc-600">vs</span>
-                <span className="font-mono text-zinc-400 truncate w-28">
+
+                <span
+                  className={`font-mono truncate w-28 ${ahead === "b" ? "text-[#00ff88]" : "text-zinc-400"}`}
+                >
                   {duel.agentB === "0x0000000000000000000000000000000000000000"
                     ? "waiting..."
-                    : name(duel.agentB)}
+                    : name(duel.agentB, false)}
                 </span>
+                {score(duel.pnlB) && (
+                  <span className="font-mono text-xs text-zinc-500 w-14">{score(duel.pnlB)}</span>
+                )}
               </div>
             </div>
 

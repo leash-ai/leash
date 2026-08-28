@@ -36,10 +36,40 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [agentRunning, setAgentRunning] = useState(false);
+  const [thinking, setThinking] = useState(false);
+  const lastPublished = useRef<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const addMsg = (role: Message["role"], content: string) =>
     setMessages((prev) => [...prev, { role, content, timestamp: Date.now() }]);
+
+  /**
+   * One line per decision, not three.
+   *
+   * Every tick used to log "Thinking…", then the decision, then the on-chain
+   * confirmation — and the decision is HOLD most of the time, because that is
+   * what a strategy does when nothing is happening. Three lines of it per tick
+   * buried the ones that mattered.
+   *
+   * Consecutive repeats collapse into a count. Matching on the whole string does
+   * not work: the model rewords its reasoning every tick, so "HOLD — no strong 2m
+   * gain" and "HOLD — no clear 2m momentum leader" are the same non-event written
+   * twice. The action is what repeats, so that is what is compared.
+   */
+  const actionOf = (line: string) => line.split(" — ")[0].trim().toUpperCase();
+
+  const addDecision = (content: string) =>
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.role === "system" && actionOf(last.content) === actionOf(content)) {
+        const times = Number(last.content.match(/ ×(\d+)$/)?.[1] ?? 1) + 1;
+        return [
+          ...prev.slice(0, -1),
+          { ...last, content: `${content} ×${times}`, timestamp: Date.now() },
+        ];
+      }
+      return [...prev, { role: "system" as const, content, timestamp: Date.now() }];
+    });
 
   // Connect WebSocket for live feed
   useEffect(() => {
@@ -59,21 +89,44 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
           const event = JSON.parse(e.data);
           if (event.type === "connected") return;
 
+          // "Thinking…" is a state, not an entry in a log.
+          if (event.type === "tick") {
+            setThinking(true);
+            setAgentRunning(true);
+            return;
+          }
+
+          if (event.type === "trade") {
+            setThinking(false);
+            setAgentRunning(true);
+            addDecision(
+              `${event.data.tradeLog} — ${event.data.reasoning} (${(event.data.pnlBps / 100).toFixed(2)}%)`,
+            );
+            return;
+          }
+
+          // The confirmation only carries news when the number moved. Repeating
+          // an unchanged score every tick is the loudest line for the least.
+          if (event.type === "pnl") {
+            const bps = event.data.pnlBps as number;
+            if (lastPublished.current !== bps) {
+              lastPublished.current = bps;
+              addDecision(`ON-CHAIN — ${bps >= 0 ? "+" : ""}${(bps / 100).toFixed(2)}% published`);
+            }
+            setAgentRunning(true);
+            return;
+          }
+
           let content = "";
-          if (event.type === "trade")
-            content = `📊 ${event.data.tradeLog} — ${event.data.reasoning} (PnL: ${(event.data.pnlBps / 100).toFixed(2)}%)`;
-          else if (event.type === "pnl")
-            content = `✅ On-chain: ${(event.data.pnlBps / 100).toFixed(2)}%`;
-          else if (event.type === "info" || event.type === "tick")
-            content = `⚙️ ${event.data.message}`;
-          else if (event.type === "end")
-            content = `🏁 ${event.data.message}`;
-          else if (event.type === "error")
-            content = `⚠️ ${event.data.message}`;
+          if (event.type === "info") content = `⚙️ ${event.data.message}`;
+          else if (event.type === "end") content = `🏁 ${event.data.message}`;
+          else if (event.type === "error") content = `⚠️ ${event.data.message}`;
 
           if (content) addMsg("system", content);
-          if (event.type === "end") setAgentRunning(false);
-          else if (event.type !== "connected") setAgentRunning(true);
+          if (event.type === "end") {
+            setAgentRunning(false);
+            setThinking(false);
+          } else if (event.type !== "connected") setAgentRunning(true);
         };
 
         ws.onopen = () => {
@@ -196,7 +249,9 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
           />
           <span className="text-sm font-bold">Agent</span>
           {agentRunning && (
-            <span className="text-[10px] text-[#00ff88] font-mono">LIVE</span>
+            <span className="text-[10px] text-[#00ff88] font-mono">
+              {thinking ? "THINKING…" : "LIVE"}
+            </span>
           )}
         </div>
         {isActive && !agentRunning && (

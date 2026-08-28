@@ -38,30 +38,39 @@ export default function Home() {
         </nav>
       </header>
 
-      {/* Hero */}
+      {/*
+        The page used to open with "My agent vs your agent" and a button reading
+        "Challenge someone". There is nobody to challenge: the house takes every
+        duel, instantly, and always has. Selling a player-versus-player product
+        that does not exist is the first thing a visitor finds out is untrue.
+      */}
       <section className="px-6 py-16 text-center border-b border-zinc-800">
         <h1 className="text-5xl font-bold tracking-tight mb-4">
-          My agent vs<br />
-          <span className="text-[#00ff88]">your agent.</span>
+          Build a bot.<br />
+          <span className="text-[#00ff88]">Race the house.</span>
         </h1>
-        <p className="text-zinc-400 text-lg max-w-md mx-auto mb-8">
-          Two AI agents, two strategies, one clock. Watch both returns move in
-          real time — the better one wins the pot.
+        <p className="text-zinc-400 text-lg max-w-lg mx-auto mb-8">
+          Describe how you want to trade and the AI writes the strategy. One of
+          six house bots takes your challenge the moment you make it — which one
+          is random. Two returns, one clock, the better one takes the pot.
         </p>
         <div className="flex items-center justify-center gap-4">
-          <button
-            onClick={() => setShowCreate(true)}
+          <Link
+            href="/bots"
             className="bg-[#00ff88] text-black font-bold px-8 py-3 rounded-lg text-lg hover:bg-[#00cc6a] transition-colors"
           >
-            Challenge someone
-          </button>
+            Build your bot
+          </Link>
           <Link
             href="#live"
             className="border border-zinc-700 text-zinc-300 font-medium px-8 py-3 rounded-lg text-lg hover:border-zinc-500 transition-colors"
           >
-            Watch live duels
+            Watch a duel
           </Link>
         </div>
+        <p className="text-zinc-600 text-xs font-mono mt-4">
+          0.1 COTI a duel, same both sides · 2 min, 10 min or an hour
+        </p>
 
         {/* Stats bar */}
         <div className="flex items-center justify-center gap-12 mt-12 text-sm">
@@ -69,7 +78,7 @@ export default function Home() {
             <div className="text-2xl font-bold text-white">
               {stats ? stats.totalDuels : "—"}
             </div>
-            <div className="text-zinc-500">Duels fought</div>
+            <div className="text-zinc-500">Duels run</div>
           </div>
           <div className="w-px h-8 bg-zinc-800" />
           <div>
@@ -88,22 +97,27 @@ export default function Home() {
 
       {/* How it works */}
       <section className="px-6 py-12 border-b border-zinc-800">
-        <div className="max-w-4xl mx-auto grid grid-cols-3 gap-8">
+        <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6">
           {[
             {
               step: "01",
               title: "Build your bot",
-              desc: "Describe how it should trade. The AI writes the strategy, you keep the bot.",
+              desc: "Describe how it should trade in a sentence. The AI writes the strategy; the bot is yours and goes into as many duels as you like.",
             },
             {
               step: "02",
-              title: "Agents Compete",
-              desc: "It trades off-chain. Your strategy never leaves your machine — not even your opponent sees it.",
+              title: "The house takes it",
+              desc: "Six opponents, each playing differently. Which one you draw is decided when it joins, so there is nothing to tune against.",
             },
             {
               step: "03",
-              title: "GC Picks Winner",
-              desc: "Both curves run side by side until the clock stops. Highest return takes the pot — settled on-chain, no referee.",
+              title: "Watch it run",
+              desc: "Both returns move side by side until the clock stops. Positions stay off-chain — your strategy never leaves your machine.",
+            },
+            {
+              step: "04",
+              title: "Settled under encryption",
+              desc: "Each agent submits its final score encrypted. A garbled circuit compares them without decrypting either, and pays the winner. Nothing to press.",
             },
           ].map((item) => (
             <div key={item.step} className="border border-zinc-800 rounded-lg p-6">
