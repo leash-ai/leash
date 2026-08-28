@@ -2,9 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const AGENT_URL: string | null =
-  process.env.NEXT_PUBLIC_AGENT_URL ||
-  (process.env.NODE_ENV === "development" ? "http://localhost:3001" : null);
+/**
+ * Where the design conversation is answered.
+ *
+ * A running agent server wins when one is configured — it already holds the
+ * keys, and one place holding them is better than two. Otherwise this app
+ * answers the call itself at /api/bot/design, because building a bot needs
+ * neither a wallet nor the chain, and a deployed site that cannot do the one
+ * thing the model is here for is not deployed.
+ */
+const DESIGN_URL: string =
+  process.env.NEXT_PUBLIC_AGENT_URL
+    ? `${process.env.NEXT_PUBLIC_AGENT_URL}/agent/bot/design`
+    : "/api/bot/design";
 
 interface Msg { role: "user" | "assistant"; content: string }
 interface Ready { name: string; strategy: string }
@@ -47,13 +57,6 @@ export function BotBuilder({ onCreated, footer }: Props) {
   const send = async (text: string) => {
     const clean = text.trim();
     if (!clean || busy) return;
-    if (!AGENT_URL) {
-      setError(
-        "Building a bot needs an agent server — it is where the model runs. Set NEXT_PUBLIC_AGENT_URL, or run the app locally.",
-      );
-      return;
-    }
-
     const next = [...msgs, { role: "user" as const, content: clean }];
     setMsgs(next);
     setInput("");
@@ -61,7 +64,7 @@ export function BotBuilder({ onCreated, footer }: Props) {
     setError(null);
 
     try {
-      const res = await fetch(`${AGENT_URL}/agent/bot/design`, {
+      const res = await fetch(DESIGN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: next }),
@@ -74,7 +77,7 @@ export function BotBuilder({ onCreated, footer }: Props) {
         setReady({ name: data.name, strategy: data.strategy });
       }
     } catch {
-      setError("Could not reach the agent server.");
+      setError("Could not reach the designer.");
     } finally {
       setBusy(false);
     }
