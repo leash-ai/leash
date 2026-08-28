@@ -45,8 +45,10 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
   useEffect(() => {
     if (!AGENT_WS) return;   // nothing to connect to; the panel says so below
 
-    let ws: WebSocket;
+    let ws: WebSocket | undefined;
     let dead = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let delay = 1000;
 
     function connect() {
       if (dead) return;
@@ -74,17 +76,35 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
           else if (event.type !== "connected") setAgentRunning(true);
         };
 
+        ws.onopen = () => {
+          delay = 1000;
+        };
+
+        // The comment here used to say "silently retry — agent server might not
+        // be running yet", and nothing retried. Starting the agent server after
+        // opening the page left the feed dead until a reload, which is the
+        // ordinary order of events when someone brings the stack up.
+        ws.onclose = () => {
+          if (dead) return;
+          retry = setTimeout(connect, delay);
+          delay = Math.min(delay * 2, 10_000);
+        };
+
         ws.onerror = () => {
-          // silently retry — agent server might not be running yet
+          // onclose always follows; retrying here too would double the attempts.
         };
       } catch {
-        // ignore connection errors
+        if (!dead) {
+          retry = setTimeout(connect, delay);
+          delay = Math.min(delay * 2, 10_000);
+        }
       }
     }
 
     connect();
     return () => {
       dead = true;
+      if (retry) clearTimeout(retry);
       ws?.close();
     };
   }, [duelId]);
