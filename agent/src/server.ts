@@ -31,7 +31,24 @@ function getOrCreate(duelId: number): DuelEntry {
   return duels.get(duelId)!;
 }
 
+/**
+ * Agent events go to the browser — and to the terminal.
+ *
+ * They used to go only to whoever had the websocket open, which meant a duel
+ * that failed with nobody watching failed in silence: the process log stayed
+ * empty and the only symptom was a flat curve. An agent quitting because the
+ * duel was still Open sat undiagnosed behind exactly that.
+ *
+ * Trades and ticks are left out. They arrive every few seconds per duel and the
+ * feed is where they belong; what the terminal needs is what went wrong.
+ */
 function broadcast(duelId: number, event: FeedEvent) {
+  if (event.type === "error" || event.type === "info" || event.type === "end") {
+    const stamp = new Date().toTimeString().slice(0, 8);
+    const detail = (event.data as { message?: string })?.message ?? event.type;
+    console.log(`[${stamp}] duel ${duelId} — ${detail}`);
+  }
+
   const entry = duels.get(duelId);
   if (!entry) return;
   const msg = JSON.stringify(event);

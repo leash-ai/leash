@@ -62,8 +62,37 @@ export async function runDuel(
     return;
   }
 
+  /**
+   * A freshly created duel is Open, not Active.
+   *
+   * The duel form starts the agent the moment createDuel returns, and the house
+   * bot needs a transaction of its own to take it — a few seconds on testnet.
+   * Giving up on the first read meant the creator's side never ran at all: the
+   * duel went Active seconds later, the house bot traded it alone, and the
+   * warning about needing an agent server was fitting the wrong cause. The agent
+   * was there. It had already quit.
+   *
+   * endTime is meaningless before the join too — it holds the raw duration until
+   * then, which is how a 300 lands in 1970 and every loop exits immediately.
+   */
+  const WAIT_FOR_OPPONENT_MS = 180_000;
+  if (Number(duel.state) === 0) {
+    emit("info", { message: "Waiting for an opponent to take the challenge…" });
+    const deadline = Date.now() + WAIT_FOR_OPPONENT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 4000));
+      duel = await dm.getDuel(duelId).catch(() => duel);
+      if (Number(duel.state) !== 0) break;
+    }
+  }
+
   if (Number(duel.state) !== 1) {
-    emit("error", { message: `Duel ${duelId} is not Active (state=${duel.state})` });
+    emit("error", {
+      message:
+        Number(duel.state) === 0
+          ? `Nobody took duel ${duelId} within ${WAIT_FOR_OPPONENT_MS / 1000}s — the agent is not running it.`
+          : `Duel ${duelId} is not Active (state=${duel.state})`,
+    });
     return;
   }
 
