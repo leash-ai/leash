@@ -28,7 +28,7 @@ const DURATIONS = [
 
 export function CreateDuelModal({ onClose }: Props) {
   const [duration, setDuration] = useState(600);
-  const { bots, addBot, loaded } = useMyBots();
+  const { bots, addBot, recordDuel, loaded } = useMyBots();
   const [botId, setBotId] = useState<string | null>(null);
   const [designing, setDesigning] = useState(false);
 
@@ -98,6 +98,7 @@ export function CreateDuelModal({ onClose }: Props) {
       if (event) {
         const id = parseInt(event.topics[1], 16);
         setDuelId(id);
+        if (selected) recordDuel(selected.id, id);
 
         // Hand the duel to the agent server so the creator's side actually
         // trades. Without this you stake, watch a flat line and lose by forfeit

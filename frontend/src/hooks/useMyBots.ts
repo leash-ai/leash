@@ -8,6 +8,8 @@ export interface Bot {
   /** The brief handed to the trading agent. Written by the model, not the user. */
   strategy: string;
   createdAt: number;
+  /** Duels this bot has been sent into, so it can carry a record. */
+  duelIds: number[];
 }
 
 const KEY = "leash.bots.v1";
@@ -27,7 +29,9 @@ export function useMyBots() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) setBots(JSON.parse(raw));
+      // duelIds arrived after the first bots did; treat its absence as empty
+      // rather than letting every older bot render as undefined.
+      if (raw) setBots((JSON.parse(raw) as Bot[]).map((b) => ({ ...b, duelIds: b.duelIds ?? [] })));
     } catch {
       // A corrupt entry should cost you your bots, not the page.
     }
@@ -50,10 +54,24 @@ export function useMyBots() {
         name,
         strategy,
         createdAt: Date.now(),
+        duelIds: [],
       };
       persist([bot, ...bots]);
       return bot;
     },
+    [bots, persist],
+  );
+
+  /** Remember that a bot was sent into a duel, so it can carry a record. */
+  const recordDuel = useCallback(
+    (id: string, duelId: number) =>
+      persist(
+        bots.map((b) =>
+          b.id === id && !b.duelIds.includes(duelId)
+            ? { ...b, duelIds: [...b.duelIds, duelId] }
+            : b,
+        ),
+      ),
     [bots, persist],
   );
 
@@ -62,5 +80,5 @@ export function useMyBots() {
     [bots, persist],
   );
 
-  return { bots, addBot, removeBot, loaded };
+  return { bots, addBot, removeBot, recordDuel, loaded };
 }
