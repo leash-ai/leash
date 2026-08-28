@@ -25,6 +25,7 @@ import { ethers } from "ethers";
 import dotenv from "dotenv";
 import { PriceData } from "./strategies/momentum";
 import { drawOpponent } from "./strategies/roster";
+import { scoreBps } from "./notional";
 import { warmUpStrategy } from "./strategies/warmup";
 import { fetchPrices } from "./marketData";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
@@ -98,7 +99,8 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
       strategy.executeTrade(t.asset, t.side, t.sizePercent, prices[t.asset as keyof PriceData] as number);
     }
 
-    const { publicPnlBps } = strategy.calculatePnLBps(prices);
+    // Scored on a notional position — see notional.ts. Both sides go through it.
+    const publicPnlBps = scoreBps(strategy.calculatePnLBps(prices).publicPnlBps);
     try {
       await (await dm.updateLivePnL(duelId, publicPnlBps, { gasLimit: 300_000n })).wait();
       lastReported = publicPnlBps;
