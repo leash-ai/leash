@@ -162,7 +162,21 @@ cd agent     && npm run check:modules   every module actually loads
 `contracts/scripts/e2e-full.ts` runs the MPC paths against COTI testnet — the
 garbled-circuit comparison, the settlement pin and the rental flow cannot be
 tested locally, because the precompile at `address(0x64)` only exists on a COTI
-network. It needs a funded key and takes about twenty minutes.
+network. It needs a funded key and takes about twenty minutes. Stop the daemons
+first: they will join its duels and overwrite its scores, and the result reads as
+a contract that reverts for no reason.
+
+```bash
+python3 scripts/ui-e2e.py                  # against localhost:3000
+python3 scripts/ui-e2e.py --url https://…  # against a deployment
+```
+
+`scripts/ui-e2e.py` presses the buttons. Everything above is tested below the
+interface, and the failures that reach a user live exactly there — a handler that
+never fires, a modal that closes without sending, a banner that renders for three
+outcomes out of four. It injects an EIP-1193 `window.ethereum` that signs outside
+the page, so a headless browser connects a real wallet and transacts for real. It
+spends one stake. Also not part of CI, for the same reason as the above.
 
 ## Quickstart
 
