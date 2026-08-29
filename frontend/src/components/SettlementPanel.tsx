@@ -25,6 +25,24 @@ interface Props {
  * may do, and which pays them RESOLVER_FEE_BPS of the pot. Nothing in the app
  * offered that, so duels simply stayed unresolved and the stakes stayed put.
  */
+/**
+ * One side's settlement status.
+ *
+ * Outside the panel on purpose: a component declared inside another component's
+ * body is a new type on every render, so React unmounts and rebuilds it instead
+ * of updating it. This panel re-renders on a countdown.
+ */
+function Tick({ done, label }: { done: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={done ? "text-[#00ff88]" : "text-zinc-600"}>{done ? "●" : "○"}</span>
+      <span className={`text-xs font-mono ${done ? "text-zinc-300" : "text-zinc-500"}`}>
+        {label} {done ? "settled" : "pending"}
+      </span>
+    </div>
+  );
+}
+
 export function SettlementPanel({ duelId, stake, settlement, now, onResolved }: Props) {
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,15 +76,6 @@ export function SettlementPanel({ duelId, stake, settlement, now, onResolved }: 
       setResolving(false);
     }
   };
-
-  const Tick = ({ done, label }: { done: boolean; label: string }) => (
-    <div className="flex items-center gap-2">
-      <span className={done ? "text-[#00ff88]" : "text-zinc-600"}>{done ? "●" : "○"}</span>
-      <span className={`text-xs font-mono ${done ? "text-zinc-300" : "text-zinc-500"}`}>
-        {label} {done ? "settled" : "pending"}
-      </span>
-    </div>
-  );
 
   return (
     <div className="border border-zinc-800 rounded-lg p-6 bg-zinc-950">

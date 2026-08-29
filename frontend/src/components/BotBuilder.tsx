@@ -52,7 +52,14 @@ export function BotBuilder({ onCreated, footer }: Props) {
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [msgs, ready]);
+  // Braces on purpose. A concise arrow body returns whatever the expression
+  // evaluates to, and React takes an effect's return value as its cleanup — so a
+  // non-function slips through here and surfaces later as "destroy is not a
+  // function" on unmount, pointing at react-dom internals rather than at this
+  // line. An effect either returns a cleanup or returns nothing.
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs, ready]);
 
   const send = async (text: string) => {
     const clean = text.trim();
