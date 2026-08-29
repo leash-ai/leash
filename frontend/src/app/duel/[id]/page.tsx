@@ -19,6 +19,49 @@ const HOUSE_ADDRESS = process.env.NEXT_PUBLIC_HOUSE_BOT_ADDRESS?.toLowerCase() ?
 const STATE_LABELS = ["Open", "Active", "Resolved"];
 const STATE_COLORS = ["text-yellow-400", "text-green-400", "text-zinc-400"];
 
+/**
+ * Who one side of a duel is, and what it scored.
+ *
+ * Both live here rather than inside DuelPage. A component declared in another
+ * component's body gets a new function identity on every render, so React treats
+ * it as a different type and unmounts the whole subtree instead of updating it.
+ * On a page that re-renders once a second for the countdown, that is the entire
+ * scoreboard torn down and rebuilt every tick.
+ */
+interface Who { label: string; name: string; note: string | null }
+
+function Side({ who }: { who: Who }) {
+  return (
+    <>
+      <div className="text-xs text-zinc-500 mb-2">{who.label}</div>
+      <div
+        className={`mb-1 truncate ${
+          who.note ? "text-sm text-zinc-200" : "font-mono text-sm text-zinc-400"
+        }`}
+      >
+        {who.name}
+      </div>
+      <div className="text-[11px] text-zinc-500 mb-4 truncate h-4">{who.note}</div>
+    </>
+  );
+}
+
+function Score({ bps, reported }: { bps: number; reported: boolean }) {
+  if (!reported) {
+    return (
+      <div className="text-3xl font-bold tabular-nums text-zinc-600">
+        —
+        <div className="text-xs font-mono text-zinc-500 mt-1">never reported</div>
+      </div>
+    );
+  }
+  return (
+    <div className={`text-3xl font-bold tabular-nums ${bps >= 0 ? "text-[#00ff88]" : "text-[#ff3b3b]"}`}>
+      {bps >= 0 ? "+" : ""}{(bps / 100).toFixed(2)}%
+    </div>
+  );
+}
+
 export default function DuelPage() {
   const { id } = useParams();
   const duelId = Number(id);
@@ -105,22 +148,6 @@ export default function DuelPage() {
     return { label: fallback, name: address, note: null };
   };
 
-  const Side = ({ address, fallback }: { address: string; fallback: string }) => {
-    const who = identify(address, fallback);
-    return (
-      <>
-        <div className="text-xs text-zinc-500 mb-2">{who.label}</div>
-        <div
-          className={`mb-1 truncate ${
-            who.note ? "text-sm text-zinc-200" : "font-mono text-sm text-zinc-400"
-          }`}
-        >
-          {who.name}
-        </div>
-        <div className="text-[11px] text-zinc-500 mb-4 truncate h-4">{who.note}</div>
-      </>
-    );
-  };
 
   /** The curves carry the same names as the panels above them. */
   const chartLabel = (address: string, fallback: string) => {
@@ -129,21 +156,6 @@ export default function DuelPage() {
     return who.note ? who.name : fallback;
   };
 
-  const Score = ({ bps, reported }: { bps: number; reported: boolean }) => {
-    if (!reported) {
-      return (
-        <div className="text-3xl font-bold tabular-nums text-zinc-600">
-          —
-          <div className="text-xs font-mono text-zinc-500 mt-1">never reported</div>
-        </div>
-      );
-    }
-    return (
-      <div className={`text-3xl font-bold tabular-nums ${bps >= 0 ? "text-[#00ff88]" : "text-[#ff3b3b]"}`}>
-        {bps >= 0 ? "+" : ""}{(bps / 100).toFixed(2)}%
-      </div>
-    );
-  };
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -176,7 +188,7 @@ export default function DuelPage() {
         <div className="grid grid-cols-3 gap-4 mb-8">
           {/* Agent A */}
           <div className={`border rounded-lg p-6 ${aWinning ? "border-[#00ff88]" : "border-zinc-800"}`}>
-            <Side address={duel.agentA} fallback="AGENT A" />
+            <Side who={identify(duel.agentA, "AGENT A")} />
             <Score bps={livePnL.pnlA} reported={duel.agentASubmitted} />
             {aWinning && isActive && bothReported && (
               <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
@@ -202,7 +214,7 @@ export default function DuelPage() {
               </>
             ) : (
               <>
-                <Side address={duel.agentB} fallback="AGENT B" />
+                <Side who={identify(duel.agentB, "AGENT B")} />
                 <Score bps={livePnL.pnlB} reported={duel.agentBSubmitted} />
                 {!aWinning && isActive && bothReported && (
                   <div className="text-xs text-[#00ff88] mt-2">● Leading</div>

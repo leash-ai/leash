@@ -16,6 +16,55 @@ const DM_ABI = [
 interface BotRecord { played: number; won: number; running: number }
 
 /**
+ * One saved bot, with what it has done.
+ *
+ * Defined here rather than inside BotsPage. A component declared in another
+ * component's body is a new function identity on every render, so React treats
+ * it as a different type and unmounts the whole subtree instead of updating it —
+ * every card is destroyed and rebuilt each time any state on the page changes.
+ */
+function BotCard({
+  bot,
+  record,
+  onDelete,
+}: {
+  bot: Bot;
+  record?: BotRecord;
+  onDelete: (id: string) => void;
+}) {
+  const r = record;
+  return (
+    <div className="border border-zinc-800 rounded-lg p-5 bg-zinc-950 flex flex-col">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <h3 className="font-bold text-lg">{bot.name}</h3>
+        <button
+          onClick={() => onDelete(bot.id)}
+          className="text-[11px] font-mono text-zinc-700 hover:text-red-400 transition-colors shrink-0"
+        >
+          delete
+        </button>
+      </div>
+
+      <p className="text-xs text-zinc-500 font-mono leading-relaxed flex-1">{bot.strategy}</p>
+
+      <div className="flex items-center justify-between mt-4 pt-3 border-t border-zinc-800">
+        <span className="text-xs font-mono text-zinc-500">
+          {!r || (r.played === 0 && r.running === 0)
+            ? "no duels yet"
+            : `${r.won}W — ${r.played - r.won}L${r.running ? ` · ${r.running} running` : ""}`}
+        </span>
+        <Link
+          href="/?duel=1"
+          className="text-xs font-mono text-[#00ff88] hover:underline"
+        >
+          send it out →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Where a bot comes from and what it has done.
  *
  * The builder lived inside the duel form, which made it a step on the way to
@@ -73,38 +122,6 @@ export default function BotsPage() {
     return () => { cancelled = true; };
   }, [bots, address]);
 
-  const BotCard = ({ bot }: { bot: Bot }) => {
-    const r = records[bot.id];
-    return (
-      <div className="border border-zinc-800 rounded-lg p-5 bg-zinc-950 flex flex-col">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <h3 className="font-bold text-lg">{bot.name}</h3>
-          <button
-            onClick={() => removeBot(bot.id)}
-            className="text-[11px] font-mono text-zinc-700 hover:text-red-400 transition-colors shrink-0"
-          >
-            delete
-          </button>
-        </div>
-
-        <p className="text-xs text-zinc-500 font-mono leading-relaxed flex-1">{bot.strategy}</p>
-
-        <div className="flex items-center justify-between mt-4 pt-3 border-t border-zinc-800">
-          <span className="text-xs font-mono text-zinc-500">
-            {!r || (r.played === 0 && r.running === 0)
-              ? "no duels yet"
-              : `${r.won}W — ${r.played - r.won}L${r.running ? ` · ${r.running} running` : ""}`}
-          </span>
-          <Link
-            href="/?duel=1"
-            className="text-xs font-mono text-[#00ff88] hover:underline"
-          >
-            send it out →
-          </Link>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -163,7 +180,9 @@ export default function BotsPage() {
 
         {bots.length > 0 && (
           <div className="grid md:grid-cols-2 gap-4 mb-16">
-            {bots.map((b) => <BotCard key={b.id} bot={b} />)}
+            {bots.map((b) => (
+              <BotCard key={b.id} bot={b} record={records[b.id]} onDelete={removeBot} />
+            ))}
           </div>
         )}
 
