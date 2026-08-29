@@ -16,7 +16,13 @@ const DESIGN_URL: string =
     ? `${process.env.NEXT_PUBLIC_AGENT_URL}/agent/bot/design`
     : "/api/bot/design";
 
-interface Msg { role: "user" | "assistant"; content: string }
+interface Msg {
+  role: "user" | "assistant";
+  /** What is shown in the thread. */
+  content: string;
+  /** What the model actually produced on that turn, when it produced a bot. */
+  bot?: Ready;
+}
 interface Ready { name: string; strategy: string }
 
 interface Props {
@@ -44,6 +50,21 @@ const EXAMPLES = [
  * bots page gives it a page; the duel form borrows it when you arrive without
  * one.
  */
+/**
+ * A turn as the model should see it.
+ *
+ * An assistant turn that produced a bot is sent as the JSON it emitted, so the
+ * next turn knows the name and the mechanism it already used. Displaying that
+ * JSON would be noise; withholding it from the model is what made every bot a
+ * Sniper.
+ */
+const forModel = (m: Msg) => ({
+  role: m.role,
+  content: m.bot
+    ? JSON.stringify({ reply: m.content, ready: true, name: m.bot.name, strategy: m.bot.strategy })
+    : m.content,
+});
+
 export function BotBuilder({ onCreated, footer }: Props) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -74,15 +95,23 @@ export function BotBuilder({ onCreated, footer }: Props) {
       const res = await fetch(DESIGN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next }),
+        // The model gets back what it produced, not just what it said about it.
+        // Only `reply` used to go into the history, so on the next turn it could
+        // not see the bot it had just designed — it regenerated from scratch and
+        // landed on the same name every time. Asking for something better got
+        // the same bot with different prose.
+        body: JSON.stringify({ messages: next.map(forModel) }),
       });
       const data = await res.json();
       if (data.error) { setError(data.error); return; }
 
-      setMsgs([...next, { role: "assistant", content: data.reply }]);
-      if (data.ready && data.name && data.strategy) {
-        setReady({ name: data.name, strategy: data.strategy });
-      }
+      const bot =
+        data.ready && data.name && data.strategy
+          ? { name: data.name as string, strategy: data.strategy as string }
+          : undefined;
+
+      setMsgs([...next, { role: "assistant", content: data.reply, bot }]);
+      if (bot) setReady(bot);
     } catch {
       setError("Could not reach the designer.");
     } finally {

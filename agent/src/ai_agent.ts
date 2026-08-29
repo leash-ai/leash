@@ -74,10 +74,13 @@ export class TradingAgent {
     systemPrompt: string,
     history: { role: string; content: string }[],
   ): Promise<{ reply: string; ready: boolean; name?: string; strategy?: string }> {
+    // 0.7 rather than the 0.4 the trading loop uses. A trade decision wants the
+    // same answer to the same inputs; naming a bot does not, and at 0.4 every
+    // conversation converged on the same handful of names.
     const raw = await this.client().complete(
       [{ role: "system", content: systemPrompt }, ...(history as ChatMessage[])],
-      400,
-      0.4,
+      500,
+      0.7,
     );
 
     const match = raw.match(/\{[\s\S]*\}/);
