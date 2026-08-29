@@ -54,7 +54,35 @@ function artifact(name: string) {
   return JSON.parse(fs.readFileSync(p, "utf8"));
 }
 
-const provider = new ethers.JsonRpcProvider(RPC);
+/**
+ * A dropped connection must not end a twenty-six minute run.
+ *
+ * The COTI testnet RPC closes idle sockets, and the scenarios sit still for
+ * minutes at a time waiting out duels. A `socket hang up` then surfaces as an
+ * unhandled ECONNRESET that kills the process — one landed after L7 on a run
+ * where every assertion up to it had passed, and the output was a bare stack
+ * trace with no indication of which call died or that the state was fine.
+ *
+ * ethers retries a request on a network error when told how many times; the
+ * default is one attempt. Batching is off for the same reason it has always been
+ * off here — COTI's RPC handles single calls more reliably than batches.
+ */
+const provider = new ethers.JsonRpcProvider(RPC, undefined, {
+  batchMaxCount: 1,
+  polling: true,
+});
+
+// A reset socket is a transport fault, not a result. Log it and let the retry
+// above do its work rather than letting an unhandled rejection end the run.
+process.on("unhandledRejection", (e: any) => {
+  const msg = String(e?.code ?? e?.message ?? e);
+  if (/ECONNRESET|socket hang up|ETIMEDOUT|EAI_AGAIN|ENOTFOUND/i.test(msg)) {
+    log("WARN", `transport hiccup ignored: ${msg.slice(0, 60)}`);
+    return;
+  }
+  console.error(e);
+  process.exit(1);
+});
 const owner  = new ethers.Wallet(SIGNING_KEY, provider);
 // Deterministic renter wallet derived from owner key — same address every run.
 const RENTER_KEY = ethers.keccak256(ethers.toUtf8Bytes(SIGNING_KEY + "leash-renter-v1"));
@@ -77,6 +105,38 @@ function log(tag: string, msg: string) {
 }
 
 async function sleep(ms: number) { await new Promise(r => setTimeout(r, ms)); }
+
+/**
+ * Wait until the duel's own clock says so, not for a fixed number of seconds.
+ *
+ * `sleep(DUEL_DURATION + 5)` counts from whenever the previous transaction
+ * happened to confirm, so every second the scenario spent setting up is a second
+ * of the settlement window burned. Scenario E sends five sequential PnL
+ * transactions; at 33 seconds for those it woke 51 seconds into a 60-second
+ * window and the first settlement missed it by three. The run died on an ethers
+ * revert dump that says nothing about the cause, and it only fires when testnet
+ * is slow — so it looked like a contract fault the previous times it did not.
+ *
+ * These read the deadline off the chain and sleep to it.
+ */
+async function waitUntil(deadlineSec: number, what: string, marginSec = 3) {
+  const target = (deadlineSec + marginSec) * 1000;
+  const wait = target - Date.now();
+  if (wait > 0) await sleep(wait);
+  else log("WARN", `${what} passed ${Math.round(-wait / 1000)}s ago — already late`);
+}
+
+/** Sleeps until submissions close. Returns endTime so callers can budget. */
+async function waitForEnd(dm: any, duelId: number | bigint): Promise<number> {
+  const endTime = Number((await dm.getDuel(duelId))[4]);
+  await waitUntil(endTime, `duel ${duelId} endTime`);
+  return endTime;
+}
+
+/** Sleeps until resolveDuel opens, given the endTime the duel actually has. */
+async function waitForWindowClose(endTime: number, duelId: number | bigint) {
+  await waitUntil(endTime + FINAL_WINDOW, `duel ${duelId} settlement window`);
+}
 
 /**
  * Send and wait, telling COTI's spurious reverts apart from real ones.
@@ -420,7 +480,7 @@ async function main() {
     }
 
     // Wait for duel to expire
-    await sleep((DUEL_DURATION + 5) * 1000);
+    const endTime0 = await waitForEnd(dm, duelId);
 
     // Settle: both sides submit their score encrypted, pinned in-circuit to the
     // live value each of them reported above.
@@ -433,7 +493,7 @@ async function main() {
     }
 
     // resolveDuel only opens once the final window closes
-    await sleep((FINAL_WINDOW + 5) * 1000);
+    await waitForWindowClose(endTime0, duelId);
 
     // Resolve — the winner comes out of MpcCore.gt on the two ciphertexts
     const resolveRc = await sendCoti("RESOLVE", dm.resolveDuel, [duelId], {},
@@ -508,7 +568,7 @@ async function main() {
     check("E1: renter last PnL = 200bps", Number(live[0]) === 200);
     check("E2: owner last PnL = 150bps",  Number(live[1]) === 150);
 
-    await sleep((DUEL_DURATION + 5) * 1000);
+    const endTime1 = await waitForEnd(dm, duelId);
 
     // Settle on the last values that landed — 200 and 150. The pin rejects
     // anything else, which is also what makes E1/E2 load-bearing rather than
@@ -516,7 +576,7 @@ async function main() {
     await settleRenter(duelId, 200);
     await settleOwner(duelId, 150);
 
-    await sleep((FINAL_WINDOW + 5) * 1000);
+    await waitForWindowClose(endTime1, duelId);
     await sendCoti("RESOLVE", dm.resolveDuel, [duelId], {},
       async () => Number((await dm.getDuel(duelId))[5]) === 2);
     await send("SETTLE", mkt.settleRental, [rentalId]);
@@ -684,8 +744,8 @@ async function main() {
 
     // Deliberately submit nothing — no live PnL, so neither side can settle
     // either — then let both the duel and the final window expire.
-    await sleep((DUEL_DURATION + 5) * 1000);
-    await sleep((FINAL_WINDOW + 5) * 1000);
+    const endTime2 = await waitForEnd(dm, duelId);
+    await waitForWindowClose(endTime2, duelId);
 
     const mktBefore   = await provider.getBalance(MKT_ADDR);
     const ownerBefore = await provider.getBalance(owner.address);
@@ -773,7 +833,7 @@ async function main() {
     await sendCoti("PNL-B", dm.updateLivePnL, [duelId, 100], {},
       async () => { const d = await dm.getDuel(duelId); return d[8] as boolean; });
 
-    await sleep((DUEL_DURATION + 5) * 1000);
+    const endTime3 = await waitForEnd(dm, duelId);
 
     // Owner tries to settle on 900bps having only ever reported 100bps.
     let rejected = false;
@@ -796,7 +856,7 @@ async function main() {
     check("N2: the value actually reported settles", honestOk);
 
     // Renter never settles → owner wins by forfeit, which also covers scenario O.
-    await sleep((FINAL_WINDOW + 5) * 1000);
+    await waitForWindowClose(endTime3, duelId);
     const rrc = await sendCoti("RESOLVE-PIN", dm.resolveDuel, [duelId], {},
       async () => Number((await dm.getDuel(duelId))[5]) === 2);
     // The renter reported 200bps and then did not settle. It competed, so it is
