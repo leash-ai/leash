@@ -181,7 +181,13 @@ export async function runDuel(
         lastReportedPnlBps = reportBps;
         emit("pnl", { pnlBps: reportBps, txHash: tx.hash });
       } catch (e: any) {
-        emit("error", { message: `PnL submit failed: ${e.message?.slice(0, 80)}` });
+        // Submissions close at endTime, and a tick in flight when the clock runs
+        // out is rejected by design. Reporting that as an error puts a warning on
+        // the feed of every duel that finished normally, which trains you to
+        // ignore the one that means something.
+        if (Date.now() < endMs) {
+          emit("error", { message: `PnL submit failed: ${e.message?.slice(0, 80)}` });
+        }
       }
     } catch (e: any) {
       emit("error", { message: e.message?.slice(0, 100) });

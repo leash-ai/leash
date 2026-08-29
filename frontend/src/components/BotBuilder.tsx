@@ -123,7 +123,7 @@ export function BotBuilder({ onCreated, footer }: Props) {
         ))}
 
         {busy && <div className="text-xs font-mono text-zinc-600">thinking…</div>}
-        {error && <div className="text-xs font-mono text-red-400 leading-relaxed">⚠️ {error}</div>}
+        {error && <div className="text-xs font-mono text-red-400 leading-relaxed">! {error}</div>}
 
         {ready && (
           <div className="border border-[#00ff88] rounded-lg p-4 mt-2">
