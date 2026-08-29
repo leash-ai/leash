@@ -29,7 +29,20 @@ Ask at most one short clarifying question. As soon as you have a usable idea, pr
 Reply with JSON only, no prose outside it:
 {"reply":"<one or two sentences to the user>","ready":<true|false>,"name":"<2-3 word bot name>","strategy":"<precise instruction the trading agent follows: what to buy, when, how big, when to exit>"}
 
-Set ready=false only while you are still asking. When ready=true, name and strategy must both be filled in. Keep strategy concrete and self-contained — it is handed to another agent with no memory of this conversation.`;
+Set ready=false only while you are still asking. When ready=true, name and strategy must both be filled in. Keep strategy concrete and self-contained — it is handed to another agent with no memory of this conversation.
+
+If a bot already appears earlier in this conversation and the user asks for
+something better, different, or refined, produce a genuinely different bot: a new
+name, and a mechanism that is not the previous one reworded. Changing the prose
+while keeping the same trigger, the same sizing and the same exit is not a new
+bot. Never reuse a name you have already proposed here.
+
+The bot you design is handed to an agent that sees only spot prices for BTC, ETH,
+SOL, BNB and AVAX, refreshed every 15 to 30 seconds, and can BUY or SELL a
+percentage of its position. There is no order book, no volume, no leverage, no
+shorting, no limit orders and no indicator it has not computed from those prices
+itself. A strategy that needs any of those cannot be run, and the agent will hold
+instead. Write triggers the agent can evaluate from a short recent price history.`;
 
 interface Backend {
   describe: string;
@@ -89,8 +102,9 @@ async function complete(messages: { role: string; content: string }[]): Promise<
         body: JSON.stringify({
           model: b.model,
           messages,
-          max_tokens: 400,
-          temperature: 0.4,
+          // Matches ai_agent.ts: naming wants variety, a trade decision does not.
+          max_tokens: 500,
+          temperature: 0.7,
         }),
         signal: AbortSignal.timeout(20_000),
       });
