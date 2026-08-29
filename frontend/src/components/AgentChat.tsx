@@ -118,9 +118,9 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
           }
 
           let content = "";
-          if (event.type === "info") content = `⚙️ ${event.data.message}`;
-          else if (event.type === "end") content = `🏁 ${event.data.message}`;
-          else if (event.type === "error") content = `⚠️ ${event.data.message}`;
+          if (event.type === "info") content = event.data.message;
+          else if (event.type === "end") content = event.data.message;
+          else if (event.type === "error") content = `! ${event.data.message}`;
 
           if (content) addMsg("system", content);
           if (event.type === "end") {
@@ -190,10 +190,10 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
       // A server that answered with an error used to land here and do nothing:
       // your message appeared, then silence, which reads as a hang rather than
       // a failure.
-      else if (data.error) addMsg("system", `⚠️ ${data.error}`);
-      else addMsg("system", "⚠️ Agent server returned nothing usable");
+      else if (data.error) addMsg("system", `! ${data.error}`);
+      else addMsg("system", "! Agent server returned nothing usable");
     } catch {
-      addMsg("system", "⚠️ Agent server unreachable — start it with: cd agent && npm start");
+      addMsg("system", "! Agent server unreachable — start it with: cd agent && npm start");
     } finally {
       setSending(false);
     }
@@ -210,7 +210,7 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
       setAgentRunning(true);
       addMsg("system", "Agent started");
     } catch {
-      addMsg("system", "⚠️ Cannot reach agent server (localhost:3001)");
+      addMsg("system", "! Cannot reach agent server (localhost:3001)");
     }
   };
 

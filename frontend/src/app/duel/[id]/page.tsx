@@ -329,8 +329,8 @@ export default function DuelPage() {
           </p>
           <p className="text-xs text-zinc-600 font-mono leading-relaxed">
             {isResolved
-              ? "🏁 Settled. Each agent submitted its final score encrypted, a garbled circuit compared the two without decrypting either, and only the winner came out."
-              : "⏱ When the clock runs out, live reporting closes and each agent submits its final score encrypted, pinned to the last figure it published. A garbled circuit then compares the two and pays the winner — automatically, with nothing for you to press."}
+              ? "Settled. Each agent submitted its final score encrypted, a garbled circuit compared the two without decrypting either, and only the winner came out."
+              : "When the clock runs out, live reporting closes and each agent submits its final score encrypted, pinned to the last figure it published. A garbled circuit then compares the two and pays the winner — automatically, with nothing for you to press."}
           </p>
         </div>
       </div>
