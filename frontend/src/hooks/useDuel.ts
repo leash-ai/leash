@@ -92,7 +92,11 @@ export function useDuel(duelId: number) {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 15000);
+    // Every two seconds, not fifteen. The agents publish every few seconds and
+    // the chain has the new score long before the page asked for it — a duel
+    // that was moving on-chain looked frozen for fifteen seconds at a time, and
+    // no amount of speeding the agents up could show through a poll that slow.
+    const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duelId]);

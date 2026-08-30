@@ -12,6 +12,8 @@ const DM_ABI = [
   "function getDuel(uint256) view returns (address agentA, address agentB, uint256 stake, uint256 startTime, uint256 endTime, uint8 state, address winner, bool agentASubmitted, bool agentBSubmitted, uint256 createdAt)",
   "function updateLivePnL(uint256 duelId, int256 pnlBps) external",
   "function submitFinalPnL(uint256 duelId, (uint256 ciphertext, bytes signature) encryptedPnL)",
+  "function getLivePnL(uint256 duelId) view returns (int256 pnlA, int256 pnlB)",
+  "function settlementDelegate(uint256 duelId, address delegate) view returns (address)",
 ];
 
 export type FeedEvent = {
@@ -49,7 +51,21 @@ export async function runDuel(
   } catch {
     throw new Error("The configured signing key is not a valid private key — check AGENT_PRIVATE_KEY.");
   }
-  const dm = new ethers.Contract(process.env.DUEL_MANAGER_ADDRESS!, DM_ABI, wallet);
+  /*
+    Sends are not awaited, so the nonce has to be managed.
+
+    A COTI block is about six seconds and a receipt takes far longer than that —
+    the house bot's own log showed 37 seconds between ticks with `tick every 8s`
+    configured, because `await tx.wait()` was the real interval. Waiting caps the
+    curve at two points a minute no matter what the tick is set to.
+
+    NonceManager assigns nonces locally instead of asking the node for a pending
+    count, so several updates can be in flight without colliding. The chain
+    executes them in nonce order, so "last value wins" still means the last one
+    sent.
+  */
+  const signer = new ethers.NonceManager(wallet);
+  const dm = new ethers.Contract(process.env.DUEL_MANAGER_ADDRESS!, DM_ABI, signer);
   const ai = new TradingAgent();
 
   const emit = (type: FeedEvent["type"], data: any) =>
@@ -116,7 +132,7 @@ export async function runDuel(
     scheduled, so asking for five is really asking for "as fast as the chain
     allows" without ever queueing two at once.
   */
-  const tickMs = Math.max(5_000, Math.min(12_000, Math.floor(remaining / 40)));
+  const tickMs = Math.max(3_000, Math.min(6_000, Math.floor(remaining / 80)));
 
   emit("info", {
     message: `Agent started — wallet ${wallet.address.slice(0, 8)}… | duel ends in ${Math.round(remaining / 1000)}s | tick every ${tickMs / 1000}s`,
@@ -151,18 +167,53 @@ export async function runDuel(
     if (settled) return;
     settled = true;
 
-    if (lastReportedPnlBps === null) {
+    /*
+      Pin to what the chain recorded, not to what we last sent.
+
+      submitFinalPnL compares the ciphertext in-circuit against the participant's
+      own last public report, so settling on a value the chain never took reverts
+      and the agent forfeits. Now that updates are sent without waiting, the last
+      one can still be in flight — or dropped — when the clock stops. Reading it
+      back is the only thing that is true.
+    */
+    let onChain: number | null = null;
+    try {
+      const d = await dm.getDuel(duelId);
+      const me = wallet.address.toLowerCase();
+
+      // Which side this agent reports for. It is a participant when the duel was
+      // created from its own key, and a named delegate when it plays for someone
+      // else's wallet — which is the ordinary case.
+      let principal = me;
+      if (String(d[0]).toLowerCase() !== me && String(d[1]).toLowerCase() !== me) {
+        principal = String(await dm.settlementDelegate(duelId, wallet.address)).toLowerCase();
+      }
+
+      const isA = String(d[0]).toLowerCase() === principal;
+      if (d[isA ? 7 : 8]) {
+        const live = await dm.getLivePnL(duelId);
+        onChain = Number(isA ? live[0] : live[1]);
+      }
+    } catch { /* fall through to the local value */ }
+
+    const pnl = onChain ?? lastReportedPnlBps;
+    if (pnl === null) {
       emit("info", { message: "Nothing was reported on-chain — no score to settle" });
       return;
     }
+    if (onChain !== null && onChain !== lastReportedPnlBps) {
+      emit("info", {
+        message: `Last update did not land; settling on the chain's ${(onChain / 100).toFixed(2)}%`,
+      });
+    }
 
     try {
-      const signer = await cotiWallet(key, provider, process.env.AES_KEY);
+      const cotiSigner = await cotiWallet(key, provider, process.env.AES_KEY);
       const hash = await submitFinalPnL(
-        signer, process.env.DUEL_MANAGER_ADDRESS!, duelId, lastReportedPnlBps
+        cotiSigner, process.env.DUEL_MANAGER_ADDRESS!, duelId, pnl
       );
       emit("info", {
-        message: `Settled with encrypted score ${(lastReportedPnlBps / 100).toFixed(2)}% — ${hash.slice(0, 10)}…`,
+        message: `Settled with encrypted score ${(pnl / 100).toFixed(2)}% — ${hash.slice(0, 10)}…`,
       });
     } catch (e: any) {
       emit("error", { message: `Settlement failed, this agent forfeits: ${e.message?.slice(0, 90)}` });
@@ -198,19 +249,24 @@ export async function runDuel(
         prices,
       });
 
-      // Submit PnL on-chain
+      // Submit PnL on-chain — sent, not awaited. See the NonceManager note above.
       try {
         const tx = await dm.updateLivePnL(duelId, BigInt(reportBps), {
           gasLimit: 200_000n,
         });
-        await tx.wait();
         lastReportedPnlBps = reportBps;
         emit("pnl", { pnlBps: reportBps, txHash: tx.hash });
+
+        // Failures still surface, just later than the next tick. Submissions
+        // close at endTime and a tick in flight when the clock runs out is
+        // rejected by design; reporting that puts a warning on the feed of every
+        // duel that finished normally.
+        tx.wait().catch((e: any) => {
+          if (Date.now() < endMs) {
+            emit("error", { message: `PnL did not land: ${e.message?.slice(0, 80)}` });
+          }
+        });
       } catch (e: any) {
-        // Submissions close at endTime, and a tick in flight when the clock runs
-        // out is rejected by design. Reporting that as an error puts a warning on
-        // the feed of every duel that finished normally, which trains you to
-        // ignore the one that means something.
         if (Date.now() < endMs) {
           emit("error", { message: `PnL submit failed: ${e.message?.slice(0, 80)}` });
         }
@@ -224,7 +280,7 @@ export async function runDuel(
     const timeLeft = d2 ? Number(d2.endTime) * 1000 - Date.now() : 0;
     if (d2 && Number(d2.state) === 1 && timeLeft > 5_000) {
       const delay = Math.min(tickMs, timeLeft - 3_000);
-      setTimeout(loop, Math.max(2_000, delay));
+      setTimeout(loop, Math.max(1_500, delay));
     } else {
       await settle();
       emit("end", { message: "Duel complete" });

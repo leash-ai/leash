@@ -68,10 +68,12 @@ export default function DuelPage() {
   const { duel, livePnL, settlement, loading, refresh } = useDuel(duelId);
   const { bots } = useMyBots();
   const [now, setNow] = useState(Date.now());
-  // Re-read the curve on the same 15s cadence the duel data uses.
+  // Re-read the curve on the same cadence the duel data uses. It was 15s, which
+  // is slower than the agents publish — the curve gained points in bursts and
+  // sat still between them.
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 15000);
+    const t = setInterval(() => setTick((n) => n + 1), 3000);
     return () => clearInterval(t);
   }, []);
   const history = useDuelHistory(
