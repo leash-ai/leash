@@ -59,7 +59,17 @@ Respond with ONLY this JSON (no extra text):
 {"action":"BUY","symbol":"ETH","pct":40,"reasoning":"ETH momentum strong"}
 - action: BUY | SELL | HOLD
 - pct: % of cash (BUY) or % of position (SELL)
-- Keep reasoning under 10 words.`;
+- Keep reasoning under 10 words.
+
+Compete. A duel is minutes long and sitting in cash for all of it loses by
+default — it is not caution, it is forfeiting the race. Your strategy describes
+what you are looking for; if its exact trigger has not fired by the second tick,
+take the position it is closest to anyway, on whichever asset has moved most in
+the direction your strategy favours. Only hold cash when your strategy explicitly
+says to stay out.
+
+Size for a short game. Positions of 50–100% of cash are normal here; 5% will not
+show up before the clock stops.`;
 
 export class TradingAgent {
   private llm: LlmClient | null = null;

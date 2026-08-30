@@ -35,10 +35,23 @@ test("flat stays flat", () => {
 });
 
 test("it rounds rather than truncating toward the tie", () => {
-  // Truncation would bias every score toward zero — and a tie goes to agentB by
-  // contract rule, so the bias would have a beneficiary.
-  assert.equal(scoreBps(0.4), 8);
-  assert.equal(scoreBps(-0.4), -8);
+  // Truncation would pull every score toward zero, and a tie goes to agentB by
+  // contract rule — so the bias would have a beneficiary.
+  //
+  // The inputs are derived from LEVERAGE rather than written out: hardcoded ones
+  // stopped distinguishing rounding from truncation the moment the multiplier
+  // changed, and the test then failed for saying nothing rather than for being
+  // wrong. A fractional part above a half is what makes the two disagree.
+  // Sign applied after the offset: adding 0.7 to a negative whole moves it
+  // toward zero and lands on a fraction below a half, which tests nothing.
+  const overHalf = (whole: number) =>
+    (Math.sign(whole) * (Math.abs(whole) + 0.7)) / LEVERAGE;
+
+  for (const real of [overHalf(3), overHalf(-3), overHalf(41), overHalf(-41)]) {
+    const scaled = real * LEVERAGE;
+    assert.equal(scoreBps(real), Math.round(scaled));
+    assert.notEqual(Math.round(scaled), Math.trunc(scaled), `${real} does not test rounding`);
+  }
 });
 
 test("the result stays inside what updateLivePnL accepts", () => {

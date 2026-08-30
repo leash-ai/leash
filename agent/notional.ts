@@ -25,8 +25,23 @@
  * loan: nobody is liquidated and nobody owes more than the stake.
  */
 
-/** Chosen so a typical ten-minute duel finishes somewhere in ±1%, not ±0.05%. */
-export const LEVERAGE = 20;
+/**
+ * Chosen so a duel is worth watching in a quiet market, not only a lively one.
+ *
+ * Two earlier settings were too timid. At 20 a 0.05% margin became 1% — legible
+ * off the axis, still nearly flat to look at. At 50 a calm seven-minute duel
+ * spanned about 1.5%, which reads as a race only if you are already staring at
+ * it. Market conditions dominate the outcome, so the multiplier has to be sized
+ * for the quiet case: at 100 a calm duel covers a few percent and a normal one
+ * closer to ten, and a lead changing hands is obvious at a glance.
+ *
+ * It applies to both sides, so it moves the margin and never the winner. Nor
+ * does it raise anyone's risk — the stake is fixed and this is a scoring rule,
+ * not a loan. What it does cost is plausibility: +8% in ten minutes is not a
+ * return anyone earned, which is why the duel page states the multiplier next to
+ * the number rather than leaving it to be inferred.
+ */
+export const LEVERAGE = 100;
 
 /** Kept well inside DuelManager's bound, and far past anything a duel produces. */
 const CAP_BPS = 5_000_000; // ±50,000%
