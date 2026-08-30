@@ -47,13 +47,14 @@ const MAX_STAKE = ethers.parseEther(process.env.HOUSE_BOT_MAX_STAKE || "0.5");
  * than move. The transaction is the floor — four to eight seconds on COTI — so
  * eight is close to as often as the chain will take it.
  */
-const TICK_MS = Number(process.env.UPDATE_INTERVAL_MS || 8_000);
+const TICK_MS = Number(process.env.UPDATE_INTERVAL_MS || 3_000);
 
 const DUEL_ABI = [
   "event DuelCreated(uint256 indexed duelId, address indexed agentA, uint256 stake, uint256 duration)",
   "function getDuel(uint256) view returns (address,address,uint256,uint256,uint256,uint8,address,bool,bool,uint256)",
   "function joinDuel(uint256) payable",
   "function updateLivePnL(uint256 duelId, int256 pnlBps)",
+  "function duelCount() view returns (uint256)",
 ];
 
 const log = (m: string) => console.log(`[${new Date().toTimeString().slice(0, 8)}] ${m}`);
@@ -62,7 +63,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const busy = new Set<string>();
 
 async function play(duelId: bigint, wallet: ethers.Wallet) {
-  const dm = new ethers.Contract(DM_ADDR, DUEL_ABI, wallet);
+  // Nonces assigned locally, because live updates are sent without waiting for a
+  // receipt and would otherwise collide on the node's pending count.
+  const dm = new ethers.Contract(DM_ADDR, DUEL_ABI, new ethers.NonceManager(wallet));
 
   // Only if a grace period was asked for; by default there is none.
   if (GRACE_MS > 0) await sleep(GRACE_MS);
@@ -109,9 +112,19 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
     // Scored on a notional position — see notional.ts. Both sides go through it.
     const publicPnlBps = scoreBps(strategy.calculatePnLBps(prices).publicPnlBps);
     try {
-      await (await dm.updateLivePnL(duelId, publicPnlBps, { gasLimit: 300_000n })).wait();
+      /*
+        Sent, not awaited.
+
+        A COTI block is about six seconds and a receipt takes far longer — this
+        loop logged 37 seconds between ticks with TICK_MS at 8000, because
+        `.wait()` was the real interval. The nonce is managed locally (see the
+        signer below) so several updates can be in flight in order, and "last
+        value wins" still means the last one sent.
+      */
+      const tx = await dm.updateLivePnL(duelId, publicPnlBps, { gasLimit: 300_000n });
       lastReported = publicPnlBps;
       log(`duel ${duelId} — ${(publicPnlBps / 100).toFixed(2)}%`);
+      tx.wait().catch(() => { /* a lost update is replaced by the next one */ });
     } catch {
       if (Date.now() >= endTime) break;  // submissions closed, expected
     }
@@ -148,6 +161,11 @@ async function main() {
   // them, which for a bot that exists to answer challenges means silently
   // answering none.
   const provider = new ethers.JsonRpcProvider(RPC, undefined, { polling: true });
+  // ethers polls logs every 4s by default, and a challenge sat unanswered for
+  // that long on top of the two transactions it already costs — fifteen seconds
+  // from "create" to "joined", for an opponent the platform is supposed to
+  // provide instantly.
+  provider.pollingInterval = 800;
   const wallet = new ethers.Wallet(KEY, provider);
   const dm = new ethers.Contract(DM_ADDR, DUEL_ABI, provider);
 
@@ -168,6 +186,30 @@ async function main() {
     log(`duel ${duelId} — challenge seen from ${agentA.slice(0, 10)}…`);
     consider(duelId);
   });
+
+  /**
+   * Watch the counter too, not only the log.
+   *
+   * Log delivery on COTI goes through a filter the provider has to poll, and it
+   * arrives after the block does. duelCount() is one eth_call and answers as
+   * soon as the block exists, so this usually sees a new duel first; the event
+   * listener above stays because it carries agentA without a second read. Both
+   * funnel into consider(), which de-duplicates.
+   */
+  let seen = Number(await dm.duelCount());
+  setInterval(async () => {
+    try {
+      const count = Number(await dm.duelCount());
+      for (let id = seen + 1; id <= count; id++) {
+        const duel = await dm.getDuel(id);
+        if (String(duel[0]).toLowerCase() === wallet.address.toLowerCase()) continue;
+        if (Number(duel[5]) !== 0) continue;
+        log(`duel ${id} — challenge seen from ${String(duel[0]).slice(0, 10)}…`);
+        consider(BigInt(id));
+      }
+      seen = Math.max(seen, count);
+    } catch { /* a missed poll is picked up by the next one */ }
+  }, 700);
 
   // Anything already waiting when the bot starts deserves an opponent too.
   const current = await provider.getBlockNumber();
