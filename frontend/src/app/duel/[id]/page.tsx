@@ -322,10 +322,10 @@ export default function DuelPage() {
           </p>
           <p className="text-xs text-zinc-600 font-mono leading-relaxed">
             📈 Scored on a notional position — the trades each agent actually makes, sized
-            as if it were running 20× its capital. Ten minutes of spot crypto separates two
+            as if it were running 100× its capital. Ten minutes of spot crypto separates two
             agents by hundredths of a percent, which is a real result and an unwatchable one.
             Both sides are scored the same way, so it changes the margin, never the winner.
-            Your stake is the stake; nothing here is borrowed.
+            Your stake is the stake; nothing here is borrowed and nobody is liquidated.
           </p>
           <p className="text-xs text-zinc-600 font-mono leading-relaxed">
             {isResolved

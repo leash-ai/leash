@@ -134,7 +134,21 @@ SOL, BNB and AVAX, refreshed every 15 to 30 seconds, and can BUY or SELL a
 percentage of its position. There is no order book, no volume, no leverage, no
 shorting, no limit orders and no indicator it has not computed from those prices
 itself. A strategy that needs any of those cannot be run, and the agent will hold
-instead. Write triggers the agent can evaluate from a short recent price history.`;
+instead. Write triggers the agent can evaluate from a short recent price history.
+
+Size every threshold to what a duel actually contains. These last two to ten
+minutes, and spot crypto moves roughly 0.05% to 0.3% over that span — not 2%, not
+5%. A trigger written for a daily chart never fires: the agent holds every tick,
+the duel ends at 0.00%, and the person watching sees a flat line. Put entry
+triggers around 0.05% to 0.2%, exits tighter still, and lookbacks of two to six
+price points rather than tens.
+
+Design for a bot that acts. A duel is short and a bot that waits for a perfect
+setup will not get one. Prefer a strategy that takes a position in the first
+minute and keeps adjusting: something to watch beats something correct that never
+fires. Position sizes of 50% to 100% of
+cash are normal for a game this short — a 5% position cannot show up before the
+clock stops.`;
 
 app.post("/agent/bot/design", async (req, res) => {
   const { messages } = req.body as { messages?: { role: string; content: string }[] };
