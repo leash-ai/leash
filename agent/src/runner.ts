@@ -2,7 +2,8 @@ import { ethers } from "ethers";
 import * as dotenv from "dotenv";
 dotenv.config();
 
-import { fetchPrices } from "./prices";
+import { fetchPrices, Prices } from "./prices";
+import { fetchPriceHistory } from "../strategies/warmup";
 import { scoreBps } from "../notional";
 import { TradingAgent, AgentState } from "./ai_agent";
 import { cotiWallet, submitFinalPnL } from "../coti/settlement";
@@ -109,6 +110,21 @@ export async function runDuel(
 
   emit("info", {
     message: `Agent started — wallet ${wallet.address.slice(0, 8)}… | duel ends in ${Math.round(remaining / 1000)}s | tick every ${tickMs / 1000}s`,
+  });
+
+  // Start warm, the way the house bots do.
+  //
+  // A two-minute duel is eight ticks. A strategy that reads five minutes of
+  // movement has nothing to read until the duel is nearly over, so it holds
+  // through the part that decides it — while its opponent, warmed up since its
+  // first tick, is already trading. That is not a slow strategy losing, it is a
+  // strategy that never got to run.
+  const warm = await fetchPriceHistory(8);
+  state.priceHistory = warm.history.map(({ timestamp, ...prices }) => prices as Prices);
+  emit("info", {
+    message: warm.history.length
+      ? `Warmed up on ${warm.history.length} recent prices`
+      : `Starting cold — ${warm.error ?? "no price history available"}`,
   });
 
   // What the contract has on record for us. Settlement is pinned to this value

@@ -150,6 +150,45 @@ contract DuelManager {
         emit DuelCreated(duelId, msg.sender, msg.value, duration);
     }
 
+    /**
+     * @notice Create a duel and name, in the same transaction, the agent that
+     *         will play it for you.
+     *
+     *         A strategy runs for the length of a duel in a process that holds a
+     *         key; a browser wallet does not. Without this the creator's side
+     *         could never report anything — updateLivePnL only accepted a
+     *         participant, so every tick from an agent server reverted with "Not
+     *         a participant" and the duel was lost by forfeit without a single
+     *         line on screen explaining it. That is what happened to every duel
+     *         created from a wallet that was not the agent's own.
+     *
+     *         Named here rather than in a second transaction because the
+     *         authorisation is worthless a moment later: the duel is already
+     *         running and the ticks it missed cannot be replayed.
+     *
+     *         The agent may report scores and settle. It cannot move the stake,
+     *         cannot resolve to itself, and cannot settle on a number it never
+     *         published — submitFinalPnL still pins the ciphertext to the last
+     *         public report. Scope is this duel only.
+     */
+    function createDuelWithAgent(uint256 duration, address agent)
+        external
+        payable
+        virtual
+        returns (uint256 duelId)
+    {
+        require(msg.value > 0, "Stake required");
+        require(duration >= 1 minutes && duration <= 7 days, "Invalid duration");
+        require(agent != address(0), "Zero agent");
+
+        duelId = ++duelCount;
+        _initDuel(duelId, duration);
+
+        settlementDelegate[duelId][agent] = msg.sender;
+        emit SettlementDelegateSet(duelId, msg.sender, agent);
+        emit DuelCreated(duelId, msg.sender, msg.value, duration);
+    }
+
     function joinDuel(uint256 duelId) external payable {
         Duel storage duel = duels[duelId];
         require(duel.state == DuelState.Open, "Duel not open");
@@ -179,10 +218,18 @@ contract DuelManager {
         Duel storage duel = duels[duelId];
         require(duel.state == DuelState.Active, "Duel not active");
         require(block.timestamp < duel.endTime, "Submissions closed");
-        require(msg.sender == duel.agentA || msg.sender == duel.agentB, "Not a participant");
         require(pnlBps >= PNL_MIN_BPS && pnlBps <= PNL_MAX_BPS, "PnL out of range");
 
-        if (msg.sender == duel.agentA) {
+        // Whose score this is. Normally the caller; otherwise the agent that
+        // participant named, which is the only way a strategy running in a
+        // separate process can report for a wallet it does not hold.
+        address principal = msg.sender;
+        if (msg.sender != duel.agentA && msg.sender != duel.agentB) {
+            principal = settlementDelegate[duelId][msg.sender];
+            require(principal != address(0), "Not a participant");
+        }
+
+        if (principal == duel.agentA) {
             duel.agentAPnL       = pnlBps;
             duel.agentASubmitted = true;
         } else {
@@ -190,8 +237,8 @@ contract DuelManager {
             duel.agentBSubmitted = true;
         }
 
-        lastPnLUpdate[duelId][msg.sender] = block.timestamp;
-        emit LivePnLUpdated(duelId, msg.sender, pnlBps);
+        lastPnLUpdate[duelId][principal] = block.timestamp;
+        emit LivePnLUpdated(duelId, principal, pnlBps);
     }
 
     /**
@@ -204,9 +251,11 @@ contract DuelManager {
      *         user either — the precompile rejects it. So the user settles
      *         directly and this records who they are settling for.
      *
-     *         The delegate cannot choose the score: submitFinalPnL still pins it
-     *         to the live PnL recorded for the participant, which only the
-     *         participant could write.
+     *         A delegate reports live PnL too, so it does choose the score — it
+     *         is the agent playing the duel. What it cannot do is settle on a
+     *         number it never published: submitFinalPnL pins the ciphertext to
+     *         the last public report, so the encrypted score and the one everyone
+     *         watched are the same value. It also cannot touch the stake.
      */
     function setSettlementDelegate(uint256 duelId, address delegate) external {
         Duel storage duel = duels[duelId];

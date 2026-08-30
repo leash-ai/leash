@@ -19,6 +19,9 @@ interface Props {
 /** Where the creator's side is driven from. Unset means it is not driven at all. */
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || null;
 
+/** The wallet that agent server reports from, named on the duel so it may. */
+const AGENT_ADDRESS = process.env.NEXT_PUBLIC_AGENT_ADDRESS || null;
+
 const STAKE_COTI = "0.1";
 
 const DURATIONS = [
@@ -80,6 +83,7 @@ export function CreateDuelModal({ onClose }: Props) {
 
       const DUEL_MANAGER_ABI = [
         "function createDuel(uint256 duration) payable returns (uint256)",
+        "function createDuelWithAgent(uint256 duration, address agent) payable returns (uint256)",
         "event DuelCreated(uint256 indexed duelId, address indexed agentA, uint256 stake, uint256 duration)",
       ];
 
@@ -89,9 +93,27 @@ export function CreateDuelModal({ onClose }: Props) {
         signer
       );
 
-      const tx = await contract.createDuel(duration, {
-        value: ethers.parseEther(STAKE_COTI),
-      });
+      /*
+        Name the agent in the same transaction that stakes.
+
+        Your wallet cannot run a strategy for the length of a duel; the agent
+        server can, and it reports from its own key. updateLivePnL used to take
+        only a participant, so every tick from that server was rejected and the
+        duel was lost by forfeit with nothing on screen to explain it — which is
+        what happened to every duel created from a wallet that was not the
+        agent's own. Authorising afterwards would be too late: the duel is
+        already running and the missed ticks cannot be replayed.
+
+        The agent may report scores and settle. It cannot move the stake, and it
+        cannot settle on a number it never published.
+      */
+      const tx = AGENT_ADDRESS
+        ? await contract.createDuelWithAgent(duration, AGENT_ADDRESS, {
+            value: ethers.parseEther(STAKE_COTI),
+          })
+        : await contract.createDuel(duration, {
+            value: ethers.parseEther(STAKE_COTI),
+          });
 
       const receipt = await tx.wait();
       const event = receipt?.logs.find((log: { topics: string[] }) =>
