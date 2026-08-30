@@ -8,6 +8,7 @@ import { AgentChat } from "@/components/AgentChat";
 import { SettlementPanel } from "@/components/SettlementPanel";
 import { DuelChart } from "@/components/DuelChart";
 import { useDuelHistory } from "@/hooks/useDuelHistory";
+import { useLiveMarks } from "@/hooks/useLiveMarks";
 import { useMyBots } from "@/hooks/useMyBots";
 import { opponentFor } from "@/lib/houseRoster";
 import { ethers } from "ethers";
@@ -83,6 +84,18 @@ export default function DuelPage() {
     duel ? Number(duel.startTime) : undefined,
     tick,
   );
+
+  /*
+    The chain is the record; the feed is the animation.
+
+    Batches land every few seconds carrying sub-second points, so the history
+    already has the real shape — but it arrives in bursts. The agents also mark
+    four times a second over the feed, which is what moves the line between
+    batches. Seeded from the chain so opening mid-duel still shows the whole
+    race, and the chain's version is what remains once the feed is gone.
+  */
+  const live = useLiveMarks(duelId, history, duel ? Number(duel.startTime) : undefined);
+  const curve = live.length > history.length ? live : history;
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -229,7 +242,7 @@ export default function DuelPage() {
         {/* The race itself. Two numbers say who leads; two curves say how. */}
         <div className="mb-8">
           <DuelChart
-            points={history}
+            points={curve}
             labelA={chartLabel(duel.agentA, "Agent A")}
             labelB={chartLabel(duel.agentB, "Agent B")}
           />
