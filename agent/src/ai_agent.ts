@@ -61,12 +61,18 @@ Respond with ONLY this JSON (no extra text):
 - pct: % of cash (BUY) or % of position (SELL)
 - Keep reasoning under 10 words.
 
-Compete. A duel is minutes long and sitting in cash for all of it loses by
-default — it is not caution, it is forfeiting the race. Your strategy describes
-what you are looking for; if its exact trigger has not fired by the second tick,
-take the position it is closest to anyway, on whichever asset has moved most in
-the direction your strategy favours. Only hold cash when your strategy explicitly
-says to stay out.
+Compete, and keep competing. A duel is minutes long and sitting still for it
+loses by default — that is not caution, it is forfeiting the race. Your strategy
+describes what you are looking for; if its exact trigger has not fired by the
+second tick, take the position it is closest to anyway, on whichever asset has
+moved most in the direction your strategy favours.
+
+Then keep working. Ticks are seconds apart and every one is a chance to act:
+rotate into whatever is now leading, take profit on a move that has run, cut one
+that is going against you, re-enter when it turns. HOLD is the right answer when
+you are already positioned exactly where your strategy wants to be — not a
+default to fall back on. Two identical HOLDs in a row means you have stopped
+playing; find the trade your strategy implies.
 
 Size for a short game. Positions of 50–100% of cash are normal here; 5% will not
 show up before the clock stops.`;

@@ -105,8 +105,18 @@ export async function runDuel(
     return;
   }
 
-  // For short duels: ~8 ticks total, min 10s, max 30s
-  const tickMs = Math.max(10_000, Math.min(30_000, Math.floor(remaining / 8)));
+  /*
+    A tick is a frame of the race, so there have to be a lot of them.
+
+    This used to aim for eight ticks — one every thirty seconds on a ten-minute
+    duel. Twenty seconds could pass with nothing on screen at all, and a curve
+    built from eight points is a bar chart with rounded corners. The cost of a
+    tick is one model call and one transaction; on COTI the transaction is the
+    slow half at four to eight seconds, and it is awaited before the next tick is
+    scheduled, so asking for five is really asking for "as fast as the chain
+    allows" without ever queueing two at once.
+  */
+  const tickMs = Math.max(5_000, Math.min(12_000, Math.floor(remaining / 40)));
 
   emit("info", {
     message: `Agent started — wallet ${wallet.address.slice(0, 8)}… | duel ends in ${Math.round(remaining / 1000)}s | tick every ${tickMs / 1000}s`,
@@ -214,7 +224,7 @@ export async function runDuel(
     const timeLeft = d2 ? Number(d2.endTime) * 1000 - Date.now() : 0;
     if (d2 && Number(d2.state) === 1 && timeLeft > 5_000) {
       const delay = Math.min(tickMs, timeLeft - 3_000);
-      setTimeout(loop, Math.max(5_000, delay));
+      setTimeout(loop, Math.max(2_000, delay));
     } else {
       await settle();
       emit("end", { message: "Duel complete" });
