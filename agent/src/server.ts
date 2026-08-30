@@ -215,6 +215,29 @@ app.post("/agent/duel/:id/start", async (req, res) => {
   res.json({ ok: true, duelId });
 });
 
+/**
+ * POST /agent/duel/:id/mark — the opponent's score, between transactions.
+ *
+ * The house bot runs in its own process, so it cannot emit onto this server's
+ * feed directly. It posts its mark here instead and this forwards it, which is
+ * the only way both curves move at the same resolution: the agent marks its own
+ * side in-process, the house bot marks its side over one local request.
+ *
+ * Nothing here is authoritative. Marks are for watching; what settles is what
+ * each agent published on-chain, and submitFinalPnL pins the encrypted score to
+ * that. A dropped mark costs a frame of animation and nothing else, which is why
+ * this neither authenticates nor retries.
+ */
+app.post("/agent/duel/:id/mark", (req, res) => {
+  const duelId = Number(req.params.id);
+  const { side, pnlBps } = req.body as { side?: "A" | "B"; pnlBps?: number };
+  if ((side !== "A" && side !== "B") || typeof pnlBps !== "number") {
+    return res.status(400).json({ error: "side and pnlBps required" });
+  }
+  broadcast(duelId, { type: "mark", timestamp: Date.now(), data: { side, pnlBps } });
+  res.json({ ok: true });
+});
+
 // POST /agent/duel/:id/message — send mid-duel instruction
 app.post("/agent/duel/:id/message", async (req, res) => {
   const duelId = Number(req.params.id);

@@ -26,6 +26,7 @@ import dotenv from "dotenv";
 import { PriceData } from "./strategies/momentum";
 import { drawOpponent } from "./strategies/roster";
 import { scoreBps } from "./notional";
+import { startLivePrices, currentPrices } from "./livePrices";
 import { warmUpStrategy } from "./strategies/warmup";
 import { fetchPrices } from "./marketData";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
@@ -54,6 +55,7 @@ const DUEL_ABI = [
   "function getDuel(uint256) view returns (address,address,uint256,uint256,uint256,uint8,address,bool,bool,uint256)",
   "function joinDuel(uint256) payable",
   "function updateLivePnL(uint256 duelId, int256 pnlBps)",
+  "function updateLivePnLBatch(uint256 duelId, int256[] pnlBps, uint32[] ageMs)",
   "function duelCount() view returns (uint256)",
 ];
 
@@ -102,6 +104,41 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
 
   let lastReported: number | null = null;
 
+  /*
+    Mark this side between transactions, so both curves move at the same rate.
+
+    The agent server marks its own side in-process; this one is a separate
+    daemon, so it posts over the local HTTP the page is already connected to.
+    Nothing here is authoritative — what settles is what was published on-chain.
+    A failed post costs a frame, so it is not retried and not awaited.
+  */
+  const AGENT_FEED = process.env.AGENT_SERVER_URL || "http://localhost:3001";
+  const stopPrices = startLivePrices();
+  const buffer: { bps: number; at: number }[] = [];
+
+  const marker = setInterval(() => {
+    const live = currentPrices();
+    if (!live) return;
+    const marked = scoreBps(
+      strategy.calculatePnLBps({ ...(live as any), timestamp: Date.now() }).publicPnlBps,
+    );
+    buffer.push({ bps: marked, at: Date.now() });
+
+    // Straight to the page as well, which is what moves the line between
+    // batches. This bot is its own process, so it goes over the local HTTP the
+    // page is already connected to rather than onto a feed it cannot reach.
+    fetch(`${AGENT_FEED}/agent/duel/${duelId}/mark`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ side: "B", pnlBps: marked }),
+    }).catch(() => { /* the page simply misses a frame */ });
+  }, 250);
+
+  const stopMarking = () => {
+    clearInterval(marker);
+    stopPrices();
+  };
+
   while (Date.now() < endTime) {
     const prices = await fetchPrices();
     strategy.addPriceData(prices);
@@ -121,9 +158,21 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
         signer below) so several updates can be in flight in order, and "last
         value wins" still means the last one sent.
       */
-      const tx = await dm.updateLivePnL(duelId, publicPnlBps, { gasLimit: 300_000n });
-      lastReported = publicPnlBps;
-      log(`duel ${duelId} — ${(publicPnlBps / 100).toFixed(2)}%`);
+      // The whole run since the last publish, in one transaction. Sixteen points
+      // for the cost of one, and the shape of the race ends up in the event log
+      // instead of only in whatever a server chose to stream.
+      const run = buffer.splice(0, buffer.length).slice(-64);
+      const points = run.length ? run : [{ bps: publicPnlBps, at: Date.now() }];
+      const sentAt = Date.now();
+
+      const tx = await dm.updateLivePnLBatch(
+        duelId,
+        points.map((p) => BigInt(p.bps)),
+        points.map((p) => Math.max(0, Math.min(0xffffffff, sentAt - p.at))),
+        { gasLimit: 900_000n },
+      );
+      lastReported = points[points.length - 1].bps;
+      log(`duel ${duelId} — ${(lastReported / 100).toFixed(2)}% (${points.length} pts)`);
       tx.wait().catch(() => { /* a lost update is replaced by the next one */ });
     } catch {
       if (Date.now() >= endTime) break;  // submissions closed, expected
@@ -133,6 +182,8 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
     if (left <= 1000) break;
     await sleep(Math.min(TICK_MS, left - 500));
   }
+
+  stopMarking();
 
   if (lastReported === null) { log(`duel ${duelId} — nothing landed on-chain`); return; }
 

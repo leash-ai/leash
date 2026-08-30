@@ -99,6 +99,9 @@ contract DuelManager {
 
     uint256 public constant FEE_BPS          = 500;  // 5% total protocol fee
     uint256 public constant RESOLVER_FEE_BPS = 50;   // 0.5% to whoever calls resolveDuel
+
+    /// Points per batch. Bounded so one transaction cannot be made to run out of gas.
+    uint256 public constant MAX_BATCH = 64;
     uint256 public constant STUCK_TIMEOUT    = 24 hours;
 
 
@@ -117,6 +120,19 @@ contract DuelManager {
     event DuelCreated(uint256 indexed duelId, address indexed agentA, uint256 stake, uint256 duration);
     event DuelJoined(uint256 indexed duelId, address indexed agentB);
     event LivePnLUpdated(uint256 indexed duelId, address indexed agent, int256 pnlBps);
+
+    /**
+     * @notice A run of scores published in one transaction.
+     * @param ageMs How long before this block each score was taken, oldest
+     *        first, so the curve can be placed in time without a transaction per
+     *        point.
+     */
+    event LivePnLBatch(
+        uint256 indexed duelId,
+        address indexed agent,
+        int256[] pnlBps,
+        uint32[] ageMs
+    );
     event DuelResolved(uint256 indexed duelId, address indexed winner, uint256 prize);
     event DuelRefunded(uint256 indexed duelId, address indexed agentA, uint256 amount);
     event DuelForfeited(uint256 indexed duelId, address indexed winner, address indexed loser);
@@ -239,6 +255,70 @@ contract DuelManager {
 
         lastPnLUpdate[duelId][principal] = block.timestamp;
         emit LivePnLUpdated(duelId, principal, pnlBps);
+    }
+
+    /**
+     * @notice Publish a run of scores in one transaction.
+     *
+     *         A block here is about six seconds, so one transaction per score
+     *         caps the curve at a point every few seconds however fast the agent
+     *         thinks. The values in between are not unknown — an agent holds a
+     *         portfolio and the market has a price for it — they were simply too
+     *         expensive to write down one at a time.
+     *
+     *         This writes them down together. Sixteen scores taken 250ms apart
+     *         cost one transaction instead of sixteen, and the whole run is in
+     *         the event log, so a spectator rebuilds the real shape of the race
+     *         from the chain rather than from whatever a server chose to stream.
+     *
+     *         Only the last value becomes the score, exactly as if the run had
+     *         been sent one at a time and the last had landed last. Settlement is
+     *         unchanged and still pins to it.
+     *
+     * @param pnlBps Scores oldest first. The last one is the score.
+     * @param ageMs  How long before this transaction each score was taken, same
+     *               order and length. Recorded, not trusted: it places points on
+     *               a chart and decides nothing.
+     */
+    function updateLivePnLBatch(
+        uint256 duelId,
+        int256[] calldata pnlBps,
+        uint32[] calldata ageMs
+    ) external {
+        Duel storage duel = duels[duelId];
+        require(duel.state == DuelState.Active, "Duel not active");
+        require(block.timestamp < duel.endTime, "Submissions closed");
+        require(pnlBps.length > 0, "Empty batch");
+        require(pnlBps.length == ageMs.length, "Length mismatch");
+        require(pnlBps.length <= MAX_BATCH, "Batch too large");
+
+        address principal = msg.sender;
+        if (msg.sender != duel.agentA && msg.sender != duel.agentB) {
+            principal = settlementDelegate[duelId][msg.sender];
+            require(principal != address(0), "Not a participant");
+        }
+
+        for (uint256 i = 0; i < pnlBps.length; i++) {
+            require(
+                pnlBps[i] >= PNL_MIN_BPS && pnlBps[i] <= PNL_MAX_BPS,
+                "PnL out of range"
+            );
+        }
+
+        int256 last = pnlBps[pnlBps.length - 1];
+        if (principal == duel.agentA) {
+            duel.agentAPnL       = last;
+            duel.agentASubmitted = true;
+        } else {
+            duel.agentBPnL       = last;
+            duel.agentBSubmitted = true;
+        }
+
+        lastPnLUpdate[duelId][principal] = block.timestamp;
+        emit LivePnLBatch(duelId, principal, pnlBps, ageMs);
+        // Also as a single update, so anything reading the original event — the
+        // leaderboard, the resolver's view of who competed — keeps working.
+        emit LivePnLUpdated(duelId, principal, last);
     }
 
     /**

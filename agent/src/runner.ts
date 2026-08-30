@@ -5,19 +5,22 @@ dotenv.config();
 import { fetchPrices, Prices } from "./prices";
 import { fetchPriceHistory } from "../strategies/warmup";
 import { scoreBps } from "../notional";
+import { startLivePrices, currentPrices } from "../livePrices";
+import { getPnLBps } from "./portfolio";
 import { TradingAgent, AgentState } from "./ai_agent";
 import { cotiWallet, submitFinalPnL } from "../coti/settlement";
 
 const DM_ABI = [
   "function getDuel(uint256) view returns (address agentA, address agentB, uint256 stake, uint256 startTime, uint256 endTime, uint8 state, address winner, bool agentASubmitted, bool agentBSubmitted, uint256 createdAt)",
   "function updateLivePnL(uint256 duelId, int256 pnlBps) external",
+  "function updateLivePnLBatch(uint256 duelId, int256[] pnlBps, uint32[] ageMs) external",
   "function submitFinalPnL(uint256 duelId, (uint256 ciphertext, bytes signature) encryptedPnL)",
   "function getLivePnL(uint256 duelId) view returns (int256 pnlA, int256 pnlB)",
   "function settlementDelegate(uint256 duelId, address delegate) view returns (address)",
 ];
 
 export type FeedEvent = {
-  type: "tick" | "trade" | "pnl" | "end" | "error" | "info";
+  type: "tick" | "trade" | "pnl" | "end" | "error" | "info" | "mark";
   timestamp: number;
   data: any;
 };
@@ -138,6 +141,72 @@ export async function runDuel(
     message: `Agent started — wallet ${wallet.address.slice(0, 8)}… | duel ends in ${Math.round(remaining / 1000)}s | tick every ${tickMs / 1000}s`,
   });
 
+  /*
+    Mark often, publish in batches.
+
+    A block here is about six seconds, so one transaction per score capped the
+    curve at a point every few seconds however fast the agent thought. The values
+    in between were never unknown — this portfolio at the current price — they
+    were only too expensive to write down one at a time.
+
+    So the mark runs four times a second and the scores collect; every few
+    seconds the run goes on-chain in one updateLivePnLBatch. Sixteen points for
+    the cost of one transaction, and the whole shape ends up in the event log,
+    so the race can be rebuilt from the chain rather than from whatever a server
+    chose to stream. The marks also go out on the feed, which is what moves the
+    line between batches.
+
+    Publishing is separate from deciding now. The trading loop below runs at its
+    own pace and no longer writes.
+  */
+  const stopPrices = startLivePrices();
+  const buffer: { bps: number; at: number }[] = [];
+
+  const marker = setInterval(() => {
+    const prices = currentPrices();
+    if (!prices) return;
+    const bps = scoreBps(getPnLBps(state.portfolio, prices));
+    buffer.push({ bps, at: Date.now() });
+    emit("mark", { side: "A", pnlBps: bps });
+  }, 250);
+
+  /** Points per transaction. Matches DuelManager.MAX_BATCH. */
+  const MAX_BATCH = 64;
+
+  const flush = async () => {
+    if (buffer.length === 0 || Date.now() >= endMs) return;
+
+    // Keep the newest if the run overflows: the last value is the score, and an
+    // older point that missed its batch is a frame, not a result.
+    const run = buffer.splice(0, buffer.length).slice(-MAX_BATCH);
+    const sentAt = Date.now();
+    const values = run.map((p) => BigInt(p.bps));
+    const ages = run.map((p) => Math.max(0, Math.min(0xffffffff, sentAt - p.at)));
+
+    try {
+      const tx = await dm.updateLivePnLBatch(duelId, values, ages, { gasLimit: 900_000n });
+      lastReportedPnlBps = run[run.length - 1].bps;
+      emit("pnl", { pnlBps: lastReportedPnlBps, points: run.length, txHash: tx.hash });
+      tx.wait().catch((e: any) => {
+        if (Date.now() < endMs) {
+          emit("error", { message: `Batch did not land: ${e.message?.slice(0, 80)}` });
+        }
+      });
+    } catch (e: any) {
+      if (Date.now() < endMs) {
+        emit("error", { message: `Batch submit failed: ${e.message?.slice(0, 80)}` });
+      }
+    }
+  };
+
+  const flusher = setInterval(() => void flush(), 4_000);
+
+  const stopMarking = () => {
+    clearInterval(marker);
+    clearInterval(flusher);
+    stopPrices();
+  };
+
   // Start warm, the way the house bots do.
   //
   // A two-minute duel is eight ticks. A strategy that reads five minutes of
@@ -166,6 +235,7 @@ export async function runDuel(
   const settle = async () => {
     if (settled) return;
     settled = true;
+    stopMarking();
 
     /*
       Pin to what the chain recorded, not to what we last sent.
@@ -249,28 +319,9 @@ export async function runDuel(
         prices,
       });
 
-      // Submit PnL on-chain — sent, not awaited. See the NonceManager note above.
-      try {
-        const tx = await dm.updateLivePnL(duelId, BigInt(reportBps), {
-          gasLimit: 200_000n,
-        });
-        lastReportedPnlBps = reportBps;
-        emit("pnl", { pnlBps: reportBps, txHash: tx.hash });
-
-        // Failures still surface, just later than the next tick. Submissions
-        // close at endTime and a tick in flight when the clock runs out is
-        // rejected by design; reporting that puts a warning on the feed of every
-        // duel that finished normally.
-        tx.wait().catch((e: any) => {
-          if (Date.now() < endMs) {
-            emit("error", { message: `PnL did not land: ${e.message?.slice(0, 80)}` });
-          }
-        });
-      } catch (e: any) {
-        if (Date.now() < endMs) {
-          emit("error", { message: `PnL submit failed: ${e.message?.slice(0, 80)}` });
-        }
-      }
+      // Nothing goes on-chain here. The marker samples the score four times a
+      // second and the flusher publishes the run; a decision that changes the
+      // portfolio shows up in the very next mark.
     } catch (e: any) {
       emit("error", { message: e.message?.slice(0, 100) });
     }

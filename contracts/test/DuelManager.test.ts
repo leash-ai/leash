@@ -258,6 +258,96 @@ describe("DuelManager", function () {
      * explain it. Any duel created from a wallet that was not the agent's own
      * was unplayable.
      */
+    /**
+     * One transaction per score capped the curve at a point every few seconds,
+     * because that is how often a block arrives. The scores in between were
+     * never unknown — an agent holds a portfolio and the market has a price —
+     * they were just too expensive to write down one at a time.
+     */
+    describe("batched scores", () => {
+      it("records the last value as the score", async () => {
+        await dm.connect(agentA).updateLivePnLBatch(1, [100, 200, 350], [750, 500, 250]);
+        const live = await dm.getLivePnL(1);
+        expect(live[0]).to.equal(350);
+      });
+
+      it("counts as having competed", async () => {
+        await dm.connect(agentA).updateLivePnLBatch(1, [42], [0]);
+        expect((await dm.getDuel(1))[7]).to.equal(true);
+      });
+
+      it("puts the whole run in the log, in order", async () => {
+        const tx = await dm.connect(agentA).updateLivePnLBatch(1, [10, 20, 30], [500, 250, 0]);
+        const rc = await tx.wait();
+        const log = rc!.logs.find(
+          (l: any) => l.fragment?.name === "LivePnLBatch"
+        ) as any;
+        expect(log.args.pnlBps.map(Number)).to.deep.equal([10, 20, 30]);
+        expect(log.args.ageMs.map(Number)).to.deep.equal([500, 250, 0]);
+      });
+
+      it("still emits the single update, so existing readers keep working", async () => {
+        await expect(dm.connect(agentA).updateLivePnLBatch(1, [10, 20], [250, 0]))
+          .to.emit(dm, "LivePnLUpdated").withArgs(1, agentA.address, 20);
+      });
+
+      it("a named agent can batch for its principal", async () => {
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await dm.connect(agentC).updateLivePnLBatch(1, [7, 9], [250, 0]);
+        expect((await dm.getLivePnL(1))[0]).to.equal(9);
+        expect((await dm.getDuel(1))[8]).to.equal(false);
+      });
+
+      it("an address nobody named cannot batch", async () => {
+        await expect(
+          dm.connect(agentC).updateLivePnLBatch(1, [5], [0])
+        ).to.be.revertedWith("Not a participant");
+      });
+
+      it("rejects a batch that says nothing", async () => {
+        await expect(
+          dm.connect(agentA).updateLivePnLBatch(1, [], [])
+        ).to.be.revertedWith("Empty batch");
+      });
+
+      it("rejects mismatched lengths, so a point cannot land at an unknown time", async () => {
+        await expect(
+          dm.connect(agentA).updateLivePnLBatch(1, [1, 2], [0])
+        ).to.be.revertedWith("Length mismatch");
+      });
+
+      it("bounds the batch so one transaction cannot be made to run out of gas", async () => {
+        const max = Number(await dm.MAX_BATCH());
+        const scores = Array.from({ length: max + 1 }, (_, i) => i);
+        await expect(
+          dm.connect(agentA).updateLivePnLBatch(1, scores, scores)
+        ).to.be.revertedWith("Batch too large");
+      });
+
+      it("checks every value, not only the last", async () => {
+        const tooBig = (await dm.PNL_MAX_BPS()) + 1n;
+        await expect(
+          dm.connect(agentA).updateLivePnLBatch(1, [tooBig, 10], [250, 0])
+        ).to.be.revertedWith("PnL out of range");
+      });
+
+      it("is closed after endTime like a single update", async () => {
+        await time.increase(DURATION_1H);
+        await expect(
+          dm.connect(agentA).updateLivePnLBatch(1, [10], [0])
+        ).to.be.revertedWith("Submissions closed");
+      });
+
+      it("settlement pins to the batch's last value", async () => {
+        await dm.connect(agentA).updateLivePnLBatch(1, [100, 250], [250, 0]);
+        await dm.connect(agentB).updateLivePnL(1, 200);
+        await time.increase(DURATION_1H);
+
+        await dm.connect(agentA).submitFinalPnLPlain(1);
+        expect((await dm.getFinalPnLStatus(1))[0]).to.equal(true);
+      });
+    });
+
     describe("an agent reporting for its principal", () => {
       it("a named agent reports live PnL for the participant who named it", async () => {
         await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
