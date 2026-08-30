@@ -250,6 +250,76 @@ describe("DuelManager", function () {
     // AgentMarketplace therefore names the renter as its settlement delegate.
     // Only the authorisation half is testable here; the ciphertext half is
     // scenario M of scripts/e2e-full.ts.
+    /**
+     * A browser wallet cannot run a strategy for the length of a duel, so the
+     * agent that plays reports from its own key. Before this, updateLivePnL took
+     * only a participant: every tick from an agent server reverted with "Not a
+     * participant" and the duel was lost by forfeit with nothing on screen to
+     * explain it. Any duel created from a wallet that was not the agent's own
+     * was unplayable.
+     */
+    describe("an agent reporting for its principal", () => {
+      it("a named agent reports live PnL for the participant who named it", async () => {
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await dm.connect(agentC).updateLivePnL(1, 742);
+
+        const live = await dm.getLivePnL(1);
+        expect(live[0]).to.equal(742);   // recorded against agentA
+        const duel = await dm.getDuel(1);
+        expect(duel[7]).to.equal(true);  // agentA counts as having competed
+        expect(duel[8]).to.equal(false); // agentC did not compete for itself
+      });
+
+      it("the event names the principal, so the feed reads as the participant's", async () => {
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await expect(dm.connect(agentC).updateLivePnL(1, 111))
+          .to.emit(dm, "LivePnLUpdated").withArgs(1, agentA.address, 111);
+      });
+
+      it("an address nobody named cannot report", async () => {
+        await expect(
+          dm.connect(agentC).updateLivePnL(1, 999)
+        ).to.be.revertedWith("Not a participant");
+      });
+
+      it("naming an agent does not let it report for the other side", async () => {
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await dm.connect(agentC).updateLivePnL(1, 300);
+
+        const live = await dm.getLivePnL(1);
+        expect(live[1]).to.equal(0);   // agentB untouched
+      });
+
+      it("createDuelWithAgent authorises in the transaction that stakes", async () => {
+        // A second transaction is worth nothing here: the duel is already
+        // running by then and the ticks it missed cannot be replayed.
+        await dm.connect(agentA).createDuelWithAgent(DURATION_1H, agentC.address, { value: STAKE });
+        const duelId = await dm.duelCount();
+        await dm.connect(agentB).joinDuel(duelId, { value: STAKE });
+
+        await dm.connect(agentC).updateLivePnL(duelId, 505);
+        const live = await dm.getLivePnL(duelId);
+        expect(live[0]).to.equal(505);
+      });
+
+      it("createDuelWithAgent rejects the zero address", async () => {
+        await expect(
+          dm.connect(agentA).createDuelWithAgent(DURATION_1H, ethers.ZeroAddress, { value: STAKE })
+        ).to.be.revertedWith("Zero agent");
+      });
+
+      it("an agent still cannot settle on a score it never published", async () => {
+        // The delegate chooses the live score — it is the one playing. What it
+        // cannot do is settle on something else: the pin is what keeps the
+        // encrypted result equal to the number everyone watched.
+        await dm.connect(agentA).setSettlementDelegate(1, agentC.address);
+        await time.increase(DURATION_1H);
+        await expect(
+          dm.connect(agentC).submitFinalPnLPlain(1)
+        ).to.be.revertedWith("No live PnL to settle");
+      });
+    });
+
     describe("settlement delegation", () => {
       it("only a participant can name a delegate", async () => {
         await expect(

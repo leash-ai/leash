@@ -22,6 +22,17 @@ export interface AgentState {
   chatHistory: Array<{ role: "user" | "assistant"; content: string }>;
   pendingMessages: string[];
   duelId?: number;
+  /**
+   * Recent prices, oldest first.
+   *
+   * The tick prompt used to carry one line: the current price of each asset. A
+   * strategy is written in terms of movement — "if it rises 0.5% in 30 seconds",
+   * "the strongest gain over five minutes" — and none of that can be evaluated
+   * from a single instant. So the model answered HOLD every tick, saying so
+   * plainly ("No 10-price history available"), and the duel ended at 0.00%
+   * against a house bot that had been warmed up since its first tick.
+   */
+  priceHistory: Prices[];
 }
 
 export function createAgentState(): AgentState {
@@ -29,6 +40,7 @@ export function createAgentState(): AgentState {
     strategy: "No strategy set — wait for owner instructions.",
     portfolio: createPortfolio(),
     chatHistory: [],
+    priceHistory: [],
     pendingMessages: [],
   };
 }
@@ -126,9 +138,29 @@ export class TradingAgent {
     const currentValue = getCurrentValue(state.portfolio, prices);
     const pnlBps = getPnLBps(state.portfolio, prices);
 
+    // Keep this tick, bounded — a duel is minutes and the prompt has to stay small.
+    state.priceHistory = [...(state.priceHistory ?? []), prices].slice(-12);
+
     const priceDesc = Object.entries(prices)
       .map(([sym, p]) => `${sym}:$${p.toFixed(0)}`)
       .join(" ");
+
+    /**
+     * What each asset has done across the points we hold, so a rule phrased in
+     * movement has something to read. Percentages rather than raw prices: it is
+     * what every strategy is written in, and it costs a fraction of the tokens.
+     */
+    const trend = Object.keys(prices)
+      .map((sym) => {
+        const series = state.priceHistory
+          .map((p) => p[sym])
+          .filter((v): v is number => typeof v === "number");
+        if (series.length < 2) return null;
+        const pct = (from: number) => (((series[series.length - 1] - from) / from) * 100).toFixed(2);
+        return `${sym} ${pct(series[0])}% over ${series.length} points, last move ${pct(series[series.length - 2])}%`;
+      })
+      .filter(Boolean)
+      .join("; ");
 
     const pending = state.pendingMessages.shift();
     const ownerNote = pending ? `\nOwner says: "${pending}"` : "";
@@ -136,7 +168,8 @@ export class TradingAgent {
     const tickPrompt = `TRADING TICK — JSON only.
 Strategy: ${state.strategy}
 Portfolio: ${portfolioSummary(state.portfolio, prices)}
-Prices: ${priceDesc}${ownerNote}`;
+Prices: ${priceDesc}
+${trend ? `Recent movement: ${trend}` : "Recent movement: first tick, no history yet"}${ownerNote}`;
 
     const messages: any[] = [
       { role: "system", content: SYSTEM_PROMPT },

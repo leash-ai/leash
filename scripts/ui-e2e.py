@@ -51,11 +51,26 @@ def env_from(path: Path) -> dict:
 
 
 ENV = env_from(ROOT / "agent" / ".env")
-KEY = ENV.get("AGENT_PRIVATE_KEY", "")
+AGENT_KEY = ENV.get("AGENT_PRIVATE_KEY", "")
 RPC = ENV.get("COTI_RPC", "https://testnet.coti.io/rpc")
 
-if not KEY:
+if not AGENT_KEY:
     sys.exit("AGENT_PRIVATE_KEY missing from agent/.env — nothing to sign with.")
+
+# The wallet in the browser is deliberately NOT the agent server's.
+#
+# It used to be, and that hid the defect that mattered: updateLivePnL took only a
+# participant, so an agent server reporting for someone else's duel was rejected
+# on every tick and the duel was lost by forfeit. With the same key on both sides
+# the run passed while no real user could play at all. Derived from the agent key
+# so the address is stable across runs and stays funded.
+USER_KEY = subprocess.run(
+    ["node", "-e",
+     f'const{{ethers}}=require("ethers");'
+     f'console.log(ethers.keccak256(ethers.toUtf8Bytes("{AGENT_KEY}"+"leash-ui-e2e-user-v1")))'],
+    capture_output=True, text=True, cwd=str(ROOT / "agent"),
+).stdout.strip()
+KEY = USER_KEY
 
 # Signing happens in Node, where ethers already lives. Keeping the key out of the
 # page is not paranoia: a page that holds a key is not the page users run.

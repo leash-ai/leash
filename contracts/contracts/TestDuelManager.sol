@@ -40,4 +40,24 @@ contract TestDuelManager is DuelManager {
         _initDuel(duelId, duration);
         emit DuelCreated(duelId, msg.sender, msg.value, duration);
     }
+
+    /** Same relaxation as above; the delegation itself is the real thing. */
+    function createDuelWithAgent(uint256 duration, address agent)
+        external
+        payable
+        virtual
+        override
+        returns (uint256 duelId)
+    {
+        require(msg.value > 0, "Stake required");
+        require(duration >= 1 && duration <= 30 days, "Invalid duration");
+        require(agent != address(0), "Zero agent");
+
+        duelId = ++duelCount;
+        _initDuel(duelId, duration);
+
+        settlementDelegate[duelId][agent] = msg.sender;
+        emit SettlementDelegateSet(duelId, msg.sender, agent);
+        emit DuelCreated(duelId, msg.sender, msg.value, duration);
+    }
 }
