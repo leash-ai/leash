@@ -37,15 +37,53 @@ const COLD_START: Omit<PriceData, "timestamp"> = { BTC: 65_000, ETH: 3_500, SOL:
 /** The last prices that were actually real. A failed fetch holds these. */
 let lastGood: Omit<PriceData, "timestamp"> | null = null;
 
+/**
+ * Binance first, because a duel moves faster than CoinGecko does.
+ *
+ * CoinGecko's free tier refreshes on the order of a minute, and these bots
+ * publish every few seconds — so consecutive ticks read the identical number and
+ * the curve steps instead of moving. Binance's public ticker changes between
+ * calls three seconds apart and needs no key. Same reasoning as src/prices.ts;
+ * the two modules stay separate because they answer different questions, but
+ * they should not disagree about where prices come from.
+ */
+const BINANCE_URL =
+  "https://api.binance.com/api/v3/ticker/price" +
+  `?symbols=${encodeURIComponent(JSON.stringify(["BTCUSDT", "ETHUSDT", "SOLUSDT"]))}`;
+
+async function fromBinance(): Promise<Omit<PriceData, "timestamp">> {
+  const res = await axios.get(BINANCE_URL, { timeout: 5000 });
+  const by = new Map<string, number>(
+    (res.data as { symbol: string; price: string }[]).map((r) => [r.symbol, Number(r.price)]),
+  );
+  const prices = {
+    BTC: by.get("BTCUSDT")!,
+    ETH: by.get("ETHUSDT")!,
+    SOL: by.get("SOLUSDT")!,
+  };
+  if (!prices.BTC || !prices.ETH || !prices.SOL) throw new Error("incomplete quote");
+  return prices;
+}
+
+async function fromCoinGecko(): Promise<Omit<PriceData, "timestamp">> {
+  const res = await axios.get(SPOT_URL, { timeout: 5000 });
+  const prices = {
+    BTC: res.data.bitcoin.usd,
+    ETH: res.data.ethereum.usd,
+    SOL: res.data.solana.usd,
+  };
+  if (!prices.BTC || !prices.ETH || !prices.SOL) throw new Error("incomplete quote");
+  return prices;
+}
+
 export async function fetchPrices(): Promise<PriceData> {
   try {
-    const res = await axios.get(SPOT_URL, { timeout: 5000 });
-    const prices = {
-      BTC: res.data.bitcoin.usd,
-      ETH: res.data.ethereum.usd,
-      SOL: res.data.solana.usd,
-    };
-    if (!prices.BTC || !prices.ETH || !prices.SOL) throw new Error("incomplete quote");
+    let prices: Omit<PriceData, "timestamp">;
+    try {
+      prices = await fromBinance();
+    } catch {
+      prices = await fromCoinGecko();
+    }
     lastGood = prices;
     return { ...prices, timestamp: Date.now() };
   } catch {

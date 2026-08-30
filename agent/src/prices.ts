@@ -6,8 +6,64 @@ const COINGECKO_IDS: Record<string, string> = {
   AVAX: "avalanche-2",
 };
 
+const BINANCE_SYMBOLS: Record<string, string> = {
+  BTC: "BTCUSDT",
+  ETH: "ETHUSDT",
+  SOL: "SOLUSDT",
+  BNB: "BNBUSDT",
+  AVAX: "AVAXUSDT",
+};
+
 export interface Prices {
   [symbol: string]: number;
+}
+
+/**
+ * Binance first, because a duel is faster than CoinGecko is.
+ *
+ * CoinGecko's free simple/price refreshes on the order of a minute. Agents tick
+ * every few seconds, so consecutive ticks read the identical number — and an
+ * agent trading on that churns: it buys ETH at 2472 and sells it at 2472 a tick
+ * later, over and over, capturing nothing while its opponent holds a position
+ * and captures the move. Speeding the agent up made that worse, not better; the
+ * feed was the bottleneck all along.
+ *
+ * Binance's public ticker changes between calls three seconds apart, needs no
+ * key, and covers all five assets in one request. CoinGecko stays as the fallback
+ * for when it is unreachable — a slow price is still a real one.
+ */
+async function fromBinance(): Promise<Prices> {
+  const symbols = JSON.stringify(Object.values(BINANCE_SYMBOLS));
+  const url = `https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(symbols)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) throw new Error(`Binance ${res.status}`);
+
+  const rows = (await res.json()) as { symbol: string; price: string }[];
+  const bySymbol = new Map(rows.map((r) => [r.symbol, Number(r.price)]));
+
+  const prices: Prices = {};
+  for (const [sym, pair] of Object.entries(BINANCE_SYMBOLS)) {
+    const value = bySymbol.get(pair);
+    if (value && Number.isFinite(value)) prices[sym] = value;
+  }
+  if (Object.keys(prices).length < Object.keys(BINANCE_SYMBOLS).length) {
+    throw new Error("Binance returned an incomplete quote");
+  }
+  return prices;
+}
+
+async function fromCoinGecko(): Promise<Prices> {
+  const ids = Object.values(COINGECKO_IDS).join(",");
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+  const data = (await res.json()) as any;
+  const prices: Prices = {};
+  for (const [sym, id] of Object.entries(COINGECKO_IDS)) {
+    if (data[id]?.usd) prices[sym] = data[id].usd;
+  }
+  if (Object.keys(prices).length === 0) throw new Error("CoinGecko returned no prices");
+  return prices;
 }
 
 /**
@@ -28,16 +84,12 @@ let lastGood: Prices | null = null;
 
 export async function fetchPrices(): Promise<Prices> {
   try {
-    const ids = Object.values(COINGECKO_IDS).join(",");
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-    const data = (await res.json()) as any;
-    const prices: Prices = {};
-    for (const [sym, id] of Object.entries(COINGECKO_IDS)) {
-      if (data[id]?.usd) prices[sym] = data[id].usd;
+    let prices: Prices;
+    try {
+      prices = await fromBinance();
+    } catch {
+      prices = await fromCoinGecko();
     }
-    if (Object.keys(prices).length === 0) throw new Error("CoinGecko returned no prices");
     lastGood = prices;
     return prices;
   } catch (e) {

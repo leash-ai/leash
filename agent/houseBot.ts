@@ -40,7 +40,14 @@ const KEY = process.env.HOUSE_BOT_PRIVATE_KEY || process.env.AGENT_PRIVATE_KEY!;
 // twenty seconds is a worse outcome than a bot answering fast.
 const GRACE_MS = Number(process.env.HOUSE_BOT_GRACE_MS ?? 0);
 const MAX_STAKE = ethers.parseEther(process.env.HOUSE_BOT_MAX_STAKE || "0.5");
-const TICK_MS = Number(process.env.UPDATE_INTERVAL_MS || 30_000);
+/**
+ * How often the house bot republishes.
+ *
+ * It matched the agent's old thirty seconds, which made both curves step rather
+ * than move. The transaction is the floor — four to eight seconds on COTI — so
+ * eight is close to as often as the chain will take it.
+ */
+const TICK_MS = Number(process.env.UPDATE_INTERVAL_MS || 8_000);
 
 const DUEL_ABI = [
   "event DuelCreated(uint256 indexed duelId, address indexed agentA, uint256 stake, uint256 duration)",
