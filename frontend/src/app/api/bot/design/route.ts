@@ -146,8 +146,11 @@ function parseDesign(raw: string) {
   try {
     const p = JSON.parse(match[0]);
     const ready = p.ready === true && !!p.name && !!p.strategy;
+    const said = String(p.reply ?? "").trim();
     return {
-      reply: String(p.reply ?? "").trim() || "…",
+      // Mirrors ai_agent.ts: a bot with no sentence beside it rendered as a bare
+      // "…", which reads as the model having nothing to say about what it built.
+      reply: said || (ready ? `Here is ${String(p.name)}.` : "…"),
       ready,
       name: ready ? String(p.name).slice(0, 40) : undefined,
       strategy: ready ? String(p.strategy).slice(0, 600) : undefined,

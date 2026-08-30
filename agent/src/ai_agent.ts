@@ -111,8 +111,12 @@ export class TradingAgent {
     try {
       const p = JSON.parse(match[0]);
       const ready = p.ready === true && !!p.name && !!p.strategy;
+      const said = String(p.reply ?? "").trim();
       return {
-        reply: String(p.reply ?? "").trim() || "…",
+        // A bot with no sentence beside it rendered as a bare "…" in the thread,
+        // which reads as the model having nothing to say about what it just
+        // built. Name it instead; the strategy is on screen underneath.
+        reply: said || (ready ? `Here is ${String(p.name)}.` : "…"),
         ready,
         name: ready ? String(p.name).slice(0, 40) : undefined,
         strategy: ready ? String(p.strategy).slice(0, 600) : undefined,
