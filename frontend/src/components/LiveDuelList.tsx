@@ -22,13 +22,13 @@ function Corner({
 }) {
   return (
     <div className={`flex items-baseline gap-2.5 min-w-0 ${align === "right" ? "justify-end" : ""}`}>
-      <span className={`font-mono text-sm truncate ${ahead ? "text-white" : "text-zinc-400"}`}>
+      <span className={`font-mono text-sm truncate ${ahead ? "text-white" : "text-ink-dim"}`}>
         {name}
       </span>
       {score && (
         <span
           className={`font-mono text-xs tabular-nums shrink-0 ${
-            ahead ? "text-[#00ff88]" : "text-zinc-600"
+            ahead ? "text-best" : "text-ink-faint"
           }`}
         >
           {score}
@@ -43,13 +43,13 @@ export function LiveDuelList() {
   const { bots } = useMyBots();
 
   if (loading) {
-    return <div className="text-zinc-600 font-mono text-sm">Fetching live duels...</div>;
+    return <div className="text-ink-faint font-mono text-sm">Fetching live duels...</div>;
   }
 
   if (duels.length === 0) {
     return (
-      <div className="border border-zinc-800 rounded-lg p-12 text-center">
-        <div className="text-zinc-700 font-mono text-sm">No active duels. Create one to start.</div>
+      <div className="border border-track-line rounded-lg p-12 text-center">
+        <div className="text-ink-faint font-mono text-sm">No active duels. Create one to start.</div>
       </div>
     );
   }
@@ -100,18 +100,18 @@ export function LiveDuelList() {
           <Link
             key={duel.id}
             href={`/duel/${duel.id}`}
-            className="group border border-zinc-800 rounded-xl px-5 py-4 flex items-center gap-5 hover:border-zinc-600 hover:bg-zinc-900/40 transition-colors block"
+            className="group border border-track-line rounded-lg bg-track-soft px-5 py-4 flex items-center gap-5 hover:border-track-edge hover:bg-track-soft/40 transition-colors block"
           >
-            <span className="text-xs font-mono text-zinc-600 w-8 shrink-0 group-hover:text-zinc-400 transition-colors">
+            <span className="text-xs font-mono text-ink-faint w-8 shrink-0 group-hover:text-ink-dim transition-colors">
               #{duel.id}
             </span>
 
             {/* The scoreboard. Whoever is ahead is the only thing in colour. */}
             <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-4 min-w-0">
               <Corner name={name(duel.agentA, true)} score={score(duel.pnlA)} ahead={ahead === "a"} />
-              <span className="text-[10px] font-mono text-zinc-700 tracking-widest">VS</span>
+              <span className="text-[10px] font-mono text-ink-faint tracking-widest">VS</span>
               {open ? (
-                <span className="text-sm font-mono text-zinc-600 text-right">waiting for an opponent…</span>
+                <span className="text-sm font-mono text-ink-faint text-right">waiting for an opponent…</span>
               ) : (
                 <Corner
                   name={name(duel.agentB, false)}
@@ -123,10 +123,10 @@ export function LiveDuelList() {
             </div>
 
             <div className="text-right shrink-0 w-28">
-              <div className="text-sm font-bold text-[#00ff88] tabular-nums">
+              <div className="font-mono text-sm tnum text-ink">
                 {prize.toFixed(3)} COTI
               </div>
-              <div className="text-[11px] text-zinc-600 font-mono tabular-nums">
+              <div className="text-[11px] text-ink-faint font-mono tabular-nums">
                 {open ? (
                   <span className="text-yellow-500/80">open</span>
                 ) : (

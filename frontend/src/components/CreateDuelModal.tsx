@@ -178,28 +178,28 @@ export function CreateDuelModal({ onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-8 w-full max-w-md">
+    <div className="fixed inset-0 bg-track/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-track-soft border border-track-line rounded-xl p-8 w-full max-w-md">
         {duelId ? (
           <div className="text-center">
             <div className="text-4xl mb-4">⚔️</div>
             <h2 className="text-xl font-bold mb-2">Duel #{duelId} created!</h2>
-            <p className="text-zinc-500 text-sm mb-6">
+            <p className="text-ink-faint text-sm mb-6">
               Share this ID with your opponent. They&apos;ll need to join with the same stake.
             </p>
-            <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4 font-mono text-2xl text-center mb-6">
+            <div className="bg-track-soft border border-track-edge rounded-lg p-4 font-mono text-2xl text-center mb-6">
               #{duelId}
             </div>
             <div className="flex gap-3">
               <button
                 onClick={() => window.location.href = `/duel/${duelId}`}
-                className="flex-1 bg-[#00ff88] text-black font-bold py-3 rounded-lg hover:bg-[#00cc6a] transition-colors"
+                className="flex-1 bg-best text-track font-display tracking-wide py-3 rounded-md hover:brightness-110 transition-all"
               >
                 Watch live
               </button>
               <button
                 onClick={onClose}
-                className="flex-1 border border-zinc-700 py-3 rounded-lg hover:border-zinc-500 transition-colors"
+                className="flex-1 border border-track-edge py-3 rounded-lg hover:border-zinc-500 transition-colors"
               >
                 Close
               </button>
@@ -212,11 +212,11 @@ export function CreateDuelModal({ onClose }: Props) {
             <div className="space-y-5">
               <div>
                 <div className="flex items-baseline justify-between mb-2">
-                  <label className="text-sm text-zinc-400">Your bot</label>
+                  <label className="text-sm text-ink-dim">Your bot</label>
                   {bots.length > 0 && (
                     <button
                       onClick={() => setDesigning(true)}
-                      className="text-xs font-mono text-[#00ff88] hover:underline"
+                      className="text-xs font-mono text-best hover:underline"
                     >
                       + new bot
                     </button>
@@ -226,12 +226,12 @@ export function CreateDuelModal({ onClose }: Props) {
                 {!loaded ? null : bots.length === 0 ? (
                   <button
                     onClick={() => setDesigning(true)}
-                    className="w-full border border-dashed border-zinc-700 rounded-lg px-4 py-6 text-center hover:border-[#00ff88] transition-colors group"
+                    className="w-full border border-dashed border-track-edge rounded-lg px-4 py-6 text-center hover:border-best transition-colors group"
                   >
-                    <div className="text-sm font-bold text-zinc-300 group-hover:text-[#00ff88]">
+                    <div className="text-sm font-bold text-ink-dim group-hover:text-best">
                       Create your first bot
                     </div>
-                    <div className="text-xs text-zinc-600 font-mono mt-1">
+                    <div className="text-xs text-ink-faint font-mono mt-1">
                       Describe how it should trade — the AI writes the strategy
                     </div>
                   </button>
@@ -243,26 +243,26 @@ export function CreateDuelModal({ onClose }: Props) {
                         onClick={() => setBotId(b.id)}
                         className={`w-full text-left border rounded-lg px-4 py-2.5 transition-colors ${
                           selected?.id === b.id
-                            ? "border-[#00ff88] bg-[#00ff88]/10"
-                            : "border-zinc-700 hover:border-zinc-500"
+                            ? "border-best bg-best/10"
+                            : "border-track-edge hover:border-zinc-500"
                         }`}
                       >
-                        <div className={`text-sm font-bold ${selected?.id === b.id ? "text-[#00ff88]" : "text-zinc-300"}`}>
+                        <div className={`text-sm font-bold ${selected?.id === b.id ? "text-best" : "text-ink-dim"}`}>
                           {b.name}
                         </div>
-                        <div className="text-xs text-zinc-500 font-mono line-clamp-2">{b.strategy}</div>
+                        <div className="text-xs text-ink-faint font-mono line-clamp-2">{b.strategy}</div>
                       </button>
                     ))}
                   </div>
                 )}
 
-                <p className="text-[11px] text-zinc-600 font-mono mt-2">
+                <p className="text-[11px] text-ink-faint font-mono mt-2">
                   It runs on your machine. Nobody sees it, including your opponent.
                 </p>
               </div>
 
               <div>
-                <label className="text-sm text-zinc-400 block mb-2">How long</label>
+                <label className="text-sm text-ink-dim block mb-2">How long</label>
                 <div className="grid grid-cols-3 gap-2">
                   {DURATIONS.map((d) => (
                     <button
@@ -270,35 +270,35 @@ export function CreateDuelModal({ onClose }: Props) {
                       onClick={() => setDuration(d.value)}
                       className={`border rounded-lg py-2 transition-colors ${
                         duration === d.value
-                          ? "border-[#00ff88] text-[#00ff88] bg-[#00ff88]/10"
-                          : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                          ? "border-best text-best bg-best/10"
+                          : "border-track-edge text-ink-dim hover:border-zinc-500"
                       }`}
                     >
                       <div className="text-sm font-mono">{d.label}</div>
-                      <div className="text-[10px] text-zinc-600">{d.sub}</div>
+                      <div className="text-[10px] text-ink-faint">{d.sub}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="border border-zinc-800 rounded-lg p-4 text-sm font-mono">
-                <div className="flex justify-between text-zinc-500 mb-1">
+              <div className="border border-track-line rounded-lg p-4 text-sm font-mono">
+                <div className="flex justify-between text-ink-faint mb-1">
                   <span>Stake — same for both sides</span>
-                  <span className="text-zinc-300">{STAKE_COTI} COTI</span>
+                  <span className="text-ink-dim">{STAKE_COTI} COTI</span>
                 </div>
-                <div className="flex justify-between text-zinc-600 mb-2">
+                <div className="flex justify-between text-ink-faint mb-2">
                   <span>Protocol fee</span>
                   <span>5%</span>
                 </div>
-                <div className="border-t border-zinc-800 pt-2 flex justify-between font-bold text-white">
+                <div className="border-t border-track-line pt-2 flex justify-between font-bold text-white">
                   <span>Winner takes</span>
-                  <span className="text-[#00ff88]">
+                  <span className="text-best">
                     {(parseFloat(STAKE_COTI) * 2 * 0.95).toFixed(3)} COTI
                   </span>
                 </div>
               </div>
 
-              <p className="text-[11px] text-zinc-600 font-mono leading-relaxed">
+              <p className="text-[11px] text-ink-faint font-mono leading-relaxed">
                 One of our bots takes the challenge the moment you make it. Which one is
                 random — six of them, each playing differently.
               </p>
@@ -328,7 +328,7 @@ export function CreateDuelModal({ onClose }: Props) {
               <button
                 onClick={handleCreate}
                 disabled={creating || !selected}
-                className="flex-1 bg-[#00ff88] text-black font-bold py-3 rounded-lg hover:bg-[#00cc6a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 bg-best text-black font-bold py-3 rounded-lg hover:bg-[#9F80FF] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {creating
                   ? "Creating…"
@@ -339,7 +339,7 @@ export function CreateDuelModal({ onClose }: Props) {
               <button
                 onClick={onClose}
                 disabled={creating}
-                className="px-6 border border-zinc-700 rounded-lg text-zinc-400 hover:border-zinc-500 disabled:opacity-50 transition-colors"
+                className="px-6 border border-track-edge rounded-lg text-ink-dim hover:border-zinc-500 disabled:opacity-50 transition-colors"
               >
                 Cancel
               </button>

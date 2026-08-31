@@ -2,21 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Asphalt, not black.
+
+  Pure #000 with one acid accent is the look every generated crypto front
+  arrives at, and it is what this was. A blue-grey ground reads as a deliberate
+  surface, gives the liveries something to sit on, and lets a panel be lighter
+  than the page without turning grey.
+*/
 :root {
-  --green: #00ff88;
-  --red: #ff3b3b;
+  --track: #0B0D10;
+  --track-soft: #12151A;
+  --track-line: #1F242C;
 }
 
 body {
-  background: #000;
-  color: #fff;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: var(--track);
+  color: #E8EAF0;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  /* The faint grain of a screen filmed trackside — sits under everything and
+     is never noticed on its own, which is the point. */
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(183, 156, 255, 0.07), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(34, 211, 238, 0.04), transparent);
+  background-attachment: fixed;
 }
 
-.glow-green {
-  box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+/* Numbers that change every 250ms must not reflow the layout around them. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
-.glow-red {
-  box-shadow: 0 0 20px rgba(255, 59, 59, 0.3);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

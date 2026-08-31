@@ -10,6 +10,7 @@ import { DuelChart } from "@/components/DuelChart";
 import { useDuelHistory } from "@/hooks/useDuelHistory";
 import { useLiveMarks } from "@/hooks/useLiveMarks";
 import { Wordmark } from "@/components/Logo";
+import { TimingStrip } from "@/components/TimingStrip";
 import { useMyBots } from "@/hooks/useMyBots";
 import { opponentFor } from "@/lib/houseRoster";
 import { ethers } from "ethers";
@@ -19,50 +20,7 @@ const HOUSE_ADDRESS = process.env.NEXT_PUBLIC_HOUSE_BOT_ADDRESS?.toLowerCase() ?
 
 // DuelState enum: Open=0, Active=1, Resolved=2
 const STATE_LABELS = ["Open", "Active", "Resolved"];
-const STATE_COLORS = ["text-yellow-400", "text-green-400", "text-zinc-400"];
-
-/**
- * Who one side of a duel is, and what it scored.
- *
- * Both live here rather than inside DuelPage. A component declared in another
- * component's body gets a new function identity on every render, so React treats
- * it as a different type and unmounts the whole subtree instead of updating it.
- * On a page that re-renders once a second for the countdown, that is the entire
- * scoreboard torn down and rebuilt every tick.
- */
-interface Who { label: string; name: string; note: string | null }
-
-function Side({ who }: { who: Who }) {
-  return (
-    <>
-      <div className="text-xs text-zinc-500 mb-2">{who.label}</div>
-      <div
-        className={`mb-1 truncate ${
-          who.note ? "text-sm text-zinc-200" : "font-mono text-sm text-zinc-400"
-        }`}
-      >
-        {who.name}
-      </div>
-      <div className="text-[11px] text-zinc-500 mb-4 truncate h-4">{who.note}</div>
-    </>
-  );
-}
-
-function Score({ bps, reported }: { bps: number; reported: boolean }) {
-  if (!reported) {
-    return (
-      <div className="text-3xl font-bold tabular-nums text-zinc-600">
-        —
-        <div className="text-xs font-mono text-zinc-500 mt-1">never reported</div>
-      </div>
-    );
-  }
-  return (
-    <div className={`text-3xl font-bold tabular-nums ${bps >= 0 ? "text-[#00ff88]" : "text-[#ff3b3b]"}`}>
-      {bps >= 0 ? "+" : ""}{(bps / 100).toFixed(2)}%
-    </div>
-  );
-}
+const STATE_COLORS = ["text-yellow-400", "text-green-400", "text-ink-dim"];
 
 export default function DuelPage() {
   const { id } = useParams();
@@ -119,7 +77,7 @@ export default function DuelPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-zinc-500 font-mono">Loading duel #{duelId}...</div>
+        <div className="text-ink-faint font-mono">Loading duel #{duelId}...</div>
       </div>
     );
   }
@@ -142,8 +100,6 @@ export default function DuelPage() {
   const prize = stakeEth * 2 * 0.95; // 5% protocol fee
 
   // Only meaningful once both sides have actually reported something.
-  const bothReported = duel.agentASubmitted && duel.agentBSubmitted;
-  const aWinning = shownA > shownB;
   const isResolved = duel.state === 2;
   const isActive = duel.state === 1;
 
@@ -178,6 +134,12 @@ export default function DuelPage() {
   };
 
 
+  /** Shaped for the timing strip, from the same identification. */
+  const identifyEntrant = (address: string, fallback: string) => {
+    const who = identify(address, fallback);
+    return { role: who.label, label: who.name, detail: who.note };
+  };
+
   /** The curves carry the same names as the panels above them. */
   const chartLabel = (address: string, fallback: string) => {
     if (address === ethers.ZeroAddress) return fallback;
@@ -189,71 +151,61 @@ export default function DuelPage() {
   return (
     <main className="min-h-screen flex flex-col">
       {/* Header */}
-      <header className="border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
-        <Link href="/" className="text-sm text-zinc-500 hover:text-white transition-colors">
+      <header className="border-b border-track-line px-6 py-4 flex items-center justify-between">
+        <Link href="/" className="text-sm text-ink-faint hover:text-ink transition-colors">
           ← Back
         </Link>
         <Wordmark />
-        <span className={`text-sm font-mono ${STATE_COLORS[duel.state] ?? "text-zinc-400"}`}>
+        <span className={`text-[11px] font-display tracking-board uppercase ${STATE_COLORS[duel.state] ?? "text-ink-faint"}`}>
           {STATE_LABELS[duel.state] ?? "Unknown"}
         </span>
       </header>
 
       <div className="flex-1 px-6 py-8 max-w-5xl mx-auto w-full">
-        {/* Duel Header */}
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl font-bold">Duel #{duelId}</h1>
-          {isActive && remaining > 0 && (
-            <div className="font-mono text-2xl tabular-nums">
-              {hours.toString().padStart(2, "0")}:
-              {minutes.toString().padStart(2, "0")}:
-              {seconds.toString().padStart(2, "0")}
-              <span className="text-sm text-zinc-500 ml-2">remaining</span>
-            </div>
-          )}
+        <div className="flex items-baseline justify-between mb-5">
+          <h1 className="font-display text-2xl tracking-wide">
+            <span className="text-ink-faint">DUEL</span> <span className="tnum">#{duelId}</span>
+          </h1>
         </div>
 
-        {/* Agents vs Display */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          {/* Agent A */}
-          <div className={`border rounded-lg p-6 ${aWinning ? "border-[#00ff88]" : "border-zinc-800"}`}>
-            <Side who={identify(duel.agentA, "AGENT A")} />
-            <Score bps={shownA} reported={duel.agentASubmitted} />
-            {aWinning && isActive && bothReported && (
-              <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
-            )}
-          </div>
+        {/*
+          The scoreboard as a trackside timing strip — see TimingStrip.
 
-          {/* VS + Prize */}
-          <div className="flex flex-col items-center justify-center border border-zinc-800 rounded-lg p-6">
-            <div className="text-3xl font-bold text-zinc-600 mb-3">VS</div>
-            <div className="text-sm text-zinc-500 mb-1">Prize pool</div>
-            <div className="text-xl font-bold text-[#00ff88]">
-              {prize.toFixed(4)} COTI
-            </div>
-            <div className="text-xs text-zinc-600 mt-1">winner takes all</div>
-          </div>
-
-          {/* Agent B */}
-          <div className={`border rounded-lg p-6 ${!aWinning && duel.agentB !== ethers.ZeroAddress ? "border-[#00ff88]" : "border-zinc-800"}`}>
-            {duel.agentB === ethers.ZeroAddress ? (
-              <>
-                <div className="text-xs text-zinc-500 mb-2">AGENT B</div>
-                <div className="text-zinc-600 text-sm mt-2">Waiting for opponent...</div>
-              </>
-            ) : (
-              <>
-                <Side who={identify(duel.agentB, "AGENT B")} />
-                <Score bps={shownB} reported={duel.agentBSubmitted} />
-                {!aWinning && isActive && bothReported && (
-                  <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
-                )}
-              </>
-            )}
-          </div>
+          It replaced three equal boxes where the prize pool was set at the same
+          weight as the two scores, which said the stake mattered as much as who
+          was winning. Position, entrant, return, gap: every column answers a
+          question the page already had, in an order the reader knows.
+        */}
+        <div className="mb-8">
+          <TimingStrip
+            a={{
+              ...identifyEntrant(duel.agentA, "AGENT A"),
+              bps: duel.agentASubmitted ? shownA : null,
+              lane: "a",
+            }}
+            b={
+              duel.agentB === ethers.ZeroAddress
+                ? { role: "OPPONENT", label: "Waiting for a challenger", detail: null, bps: null, lane: "b" }
+                : {
+                    ...identifyEntrant(duel.agentB, "AGENT B"),
+                    bps: duel.agentBSubmitted ? shownB : null,
+                    lane: "b",
+                  }
+            }
+            prizeCoti={prize}
+            clock={
+              isActive && remaining > 0 ? (
+                <span className="font-mono text-sm tnum text-ink-dim">
+                  {minutes.toString().padStart(2, "0")}:
+                  {seconds.toString().padStart(2, "0")}
+                  <span className="text-ink-faint ml-1.5">left</span>
+                </span>
+              ) : null
+            }
+          />
         </div>
 
-        {/* The race itself. Two numbers say who leads; two curves say how. */}
+
         <div className="mb-8">
           <DuelChart
             points={curve}
@@ -307,13 +259,13 @@ export default function DuelPage() {
 
           if (!hasWinner) {
             return (
-              <div className="border border-zinc-700 rounded-lg p-6 mb-8">
-                <div className="text-xs text-zinc-400 mb-2">NO CONTEST</div>
+              <div className="border border-track-edge rounded-lg p-6 mb-8">
+                <div className="text-xs text-ink-dim mb-2">NO CONTEST</div>
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">🤝</span>
                   <div>
                     <div className="font-bold text-lg">Both stakes refunded in full</div>
-                    <div className="text-xs font-mono text-zinc-500 mt-1">
+                    <div className="text-xs font-mono text-ink-faint mt-1">
                       Neither agent reported anything, so there was nothing to compare. No
                       winner, no protocol fee — {ethers.formatEther(duel.stake)} COTI back to
                       each side.
@@ -325,16 +277,16 @@ export default function DuelPage() {
           }
 
           return (
-            <div className="border border-[#00ff88] rounded-lg p-6 mb-8">
-              <div className="text-xs text-[#00ff88] mb-2">DUEL RESOLVED</div>
+            <div className="border border-best/40 bg-best/[0.04] rounded-lg p-6 mb-8">
+              <div className="text-[10px] font-display tracking-board text-best mb-2">DUEL RESOLVED</div>
               <div className="flex items-center gap-3">
                 <span className="text-2xl">🏆</span>
                 <div>
                   <div className="font-bold text-lg">
                     {byForfeit ? "Winner by forfeit" : "Winner"}
                   </div>
-                  <div className="font-mono text-zinc-400">{duel.winner}</div>
-                  <div className="text-xs font-mono text-zinc-500 mt-1">
+                  <div className="font-mono text-ink-dim">{duel.winner}</div>
+                  <div className="text-xs font-mono text-ink-faint mt-1">
                     {byForfeit
                       ? "The other agent never reported a score, so it did not compete."
                       : onPublicScores
@@ -353,20 +305,20 @@ export default function DuelPage() {
           gone on purpose, and without a word about it the countdown just runs
           out and nothing visibly happens.
         */}
-        <div className="p-4 border border-zinc-800 rounded-lg bg-zinc-950 space-y-3">
-          <p className="text-xs text-zinc-600 font-mono leading-relaxed">
+        <div className="p-4 border border-track-line rounded-lg bg-track-soft space-y-3">
+          <p className="text-xs text-ink-faint font-mono leading-relaxed">
             🔒 Your strategy is yours: positions, allocations and the logic behind them run
             off-chain and never touch the blockchain. What you see above is the one number each
             agent publishes — its total return — which is the part worth watching.
           </p>
-          <p className="text-xs text-zinc-600 font-mono leading-relaxed">
+          <p className="text-xs text-ink-faint font-mono leading-relaxed">
             📈 Scored on a notional position — the trades each agent actually makes, sized
             as if it were running 100× its capital. Ten minutes of spot crypto separates two
             agents by hundredths of a percent, which is a real result and an unwatchable one.
             Both sides are scored the same way, so it changes the margin, never the winner.
             Your stake is the stake; nothing here is borrowed and nobody is liquidated.
           </p>
-          <p className="text-xs text-zinc-600 font-mono leading-relaxed">
+          <p className="text-xs text-ink-faint font-mono leading-relaxed">
             {isResolved
               ? "Settled. Each agent submitted its final score encrypted, a garbled circuit compared the two without decrypting either, and only the winner came out."
               : "When the clock runs out, live reporting closes and each agent submits its final score encrypted, pinned to the last figure it published. A garbled circuit then compares the two and pays the winner — automatically, with nothing for you to press."}

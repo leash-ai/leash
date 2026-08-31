@@ -124,13 +124,13 @@ export function BotBuilder({ onCreated, footer }: Props) {
       <div className="flex-1 overflow-y-auto space-y-3 mb-4 min-h-[220px]">
         {msgs.length === 0 && (
           <>
-            <div className="text-sm text-zinc-400 leading-relaxed">{OPENING}</div>
+            <div className="text-sm text-ink-dim leading-relaxed">{OPENING}</div>
             <div className="grid sm:grid-cols-2 gap-2 pt-2">
               {EXAMPLES.map((ex) => (
                 <button
                   key={ex}
                   onClick={() => send(ex)}
-                  className="text-left text-xs font-mono text-zinc-500 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-[#00ff88] hover:text-zinc-300 transition-colors"
+                  className="text-left text-xs font-mono text-ink-faint border border-track-line rounded-lg px-3 py-2.5 hover:border-best hover:text-ink-dim transition-colors"
                 >
                   {ex}
                 </button>
@@ -143,7 +143,7 @@ export function BotBuilder({ onCreated, footer }: Props) {
           <div key={i} className={m.role === "user" ? "text-right" : ""}>
             <span
               className={`inline-block text-sm rounded-lg px-3 py-2 max-w-[85%] text-left ${
-                m.role === "user" ? "bg-zinc-800 text-zinc-200" : "text-zinc-400"
+                m.role === "user" ? "bg-zinc-800 text-ink" : "text-ink-dim"
               }`}
             >
               {m.content}
@@ -151,14 +151,14 @@ export function BotBuilder({ onCreated, footer }: Props) {
           </div>
         ))}
 
-        {busy && <div className="text-xs font-mono text-zinc-600">thinking…</div>}
+        {busy && <div className="text-xs font-mono text-ink-faint">thinking…</div>}
         {error && <div className="text-xs font-mono text-red-400 leading-relaxed">! {error}</div>}
 
         {ready && (
-          <div className="border border-[#00ff88] rounded-lg p-4 mt-2">
-            <div className="text-[10px] font-mono text-[#00ff88] mb-1">YOUR BOT</div>
+          <div className="border border-best rounded-lg p-4 mt-2">
+            <div className="text-[10px] font-mono text-best mb-1">YOUR BOT</div>
             <div className="font-bold text-lg mb-2">{ready.name}</div>
-            <p className="text-xs text-zinc-500 font-mono leading-relaxed">{ready.strategy}</p>
+            <p className="text-xs text-ink-faint font-mono leading-relaxed">{ready.strategy}</p>
           </div>
         )}
         <div ref={bottom} />
@@ -168,13 +168,13 @@ export function BotBuilder({ onCreated, footer }: Props) {
         <div className="flex gap-3">
           <button
             onClick={() => onCreated(ready.name, ready.strategy)}
-            className="flex-1 bg-[#00ff88] text-black font-bold py-3 rounded-lg hover:bg-[#00cc6a] transition-colors"
+            className="flex-1 bg-best text-track font-display tracking-wide py-3 rounded-md hover:brightness-110 transition-all"
           >
             Save {ready.name}
           </button>
           <button
             onClick={() => setReady(null)}
-            className="px-4 border border-zinc-700 rounded-lg text-zinc-400 hover:border-zinc-500 text-sm transition-colors"
+            className="px-4 border border-track-edge rounded-lg text-ink-dim hover:border-zinc-500 text-sm transition-colors"
           >
             Keep tweaking
           </button>
@@ -187,12 +187,12 @@ export function BotBuilder({ onCreated, footer }: Props) {
             onKeyDown={(e) => e.key === "Enter" && send(input)}
             placeholder="How should it trade?"
             disabled={busy}
-            className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-[#00ff88] transition-colors disabled:opacity-50"
+            className="flex-1 bg-track-soft border border-track-edge rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-best transition-colors disabled:opacity-50"
           />
           <button
             onClick={() => send(input)}
             disabled={busy || !input.trim()}
-            className="px-5 bg-[#00ff88] text-black font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-5 bg-best text-black font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
           >
             →
           </button>

@@ -216,12 +216,12 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
 
   if (!AGENT_URL) {
     return (
-      <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-6">
+      <div className="border border-track-line rounded-lg bg-track-soft p-6">
         <div className="text-sm font-bold mb-2">Agent</div>
-        <p className="text-xs text-zinc-500 font-mono leading-relaxed">
+        <p className="text-xs text-ink-faint font-mono leading-relaxed">
           The live agent feed needs an agent server, which runs as a long-lived
           process rather than alongside this site. Set{" "}
-          <span className="text-zinc-300">NEXT_PUBLIC_AGENT_URL</span> to point at
+          <span className="text-ink-dim">NEXT_PUBLIC_AGENT_URL</span> to point at
           one.
           <br />
           <br />
@@ -242,16 +242,16 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
   return (
     // Grows with the feed up to a ceiling, rather than reserving 360px whatever
     // is in it — early in a duel that was four lines above a field of black.
-    <div className="border border-zinc-800 rounded-xl flex flex-col max-h-[360px] min-h-[180px]">
+    <div className="border border-track-line rounded-xl flex flex-col max-h-[360px] min-h-[180px]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800 shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-track-line shrink-0">
         <div className="flex items-center gap-2">
           <span
-            className={`w-2 h-2 rounded-full ${agentRunning ? "bg-[#00ff88]" : "bg-zinc-600"}`}
+            className={`w-2 h-2 rounded-full ${agentRunning ? "bg-best" : "bg-zinc-600"}`}
           />
           <span className="text-sm font-bold">Agent</span>
           {agentRunning && (
-            <span className="text-[10px] text-[#00ff88] font-mono">
+            <span className="text-[10px] text-best font-mono">
               {thinking ? "THINKING…" : "LIVE"}
             </span>
           )}
@@ -259,7 +259,7 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
         {isActive && !agentRunning && (
           <button
             onClick={startAgent}
-            className="text-xs font-bold px-3 py-1 bg-[#00ff88] text-black rounded hover:bg-[#00cc6a] transition-colors"
+            className="text-xs font-bold px-3 py-1 bg-best text-black rounded hover:bg-[#9F80FF] transition-colors"
           >
             Start Agent
           </button>
@@ -269,7 +269,7 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 text-xs font-mono">
         {messages.length === 0 && (
-          <div className="text-zinc-600 text-center pt-6">
+          <div className="text-ink-faint text-center pt-6">
             {isActive
               ? 'Click "Start Agent" then send instructions'
               : "Define your strategy before the duel starts"}
@@ -280,10 +280,10 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
             <span
               className={`inline-block px-2 py-1 rounded max-w-[85%] text-left break-words ${
                 m.role === "user"
-                  ? "bg-[#00ff88]/15 text-[#00ff88]"
+                  ? "bg-best/15 text-best"
                   : m.role === "agent"
                   ? "bg-zinc-800 text-white"
-                  : "text-zinc-500"
+                  : "text-ink-faint"
               }`}
             >
               {m.content}
@@ -294,7 +294,7 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
       </div>
 
       {/* Input */}
-      <div className="border-t border-zinc-800 p-2.5 flex gap-2 shrink-0">
+      <div className="border-t border-track-line p-2.5 flex gap-2 shrink-0">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -302,12 +302,12 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
           placeholder={
             isActive ? "Adjust strategy mid-duel…" : "Set your strategy…"
           }
-          className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[#00ff88] transition-colors"
+          className="flex-1 bg-track-soft border border-track-edge rounded px-3 py-1.5 text-xs focus:outline-none focus:border-best transition-colors"
         />
         <button
           onClick={send}
           disabled={sending || !input.trim()}
-          className="px-3 py-1.5 bg-[#00ff88] text-black text-xs font-bold rounded hover:bg-[#00cc6a] transition-colors disabled:opacity-40"
+          className="px-3 py-1.5 bg-best text-black text-xs font-bold rounded hover:bg-[#9F80FF] transition-colors disabled:opacity-40"
         >
           →
         </button>

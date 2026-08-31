@@ -35,28 +35,28 @@ function BotCard({
 }) {
   const r = record;
   return (
-    <div className="border border-zinc-800 rounded-lg p-5 bg-zinc-950 flex flex-col">
+    <div className="border border-track-line rounded-lg p-5 bg-track-soft flex flex-col">
       <div className="flex items-start justify-between gap-3 mb-2">
         <h3 className="font-bold text-lg">{bot.name}</h3>
         <button
           onClick={() => onDelete(bot.id)}
-          className="text-[11px] font-mono text-zinc-700 hover:text-red-400 transition-colors shrink-0"
+          className="text-[11px] font-mono text-ink-faint hover:text-red-400 transition-colors shrink-0"
         >
           delete
         </button>
       </div>
 
-      <p className="text-xs text-zinc-500 font-mono leading-relaxed flex-1">{bot.strategy}</p>
+      <p className="text-xs text-ink-faint font-mono leading-relaxed flex-1">{bot.strategy}</p>
 
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-zinc-800">
-        <span className="text-xs font-mono text-zinc-500">
+      <div className="flex items-center justify-between mt-4 pt-3 border-t border-track-line">
+        <span className="text-xs font-mono text-ink-faint">
           {!r || (r.played === 0 && r.running === 0)
             ? "no duels yet"
             : `${r.won}W — ${r.played - r.won}L${r.running ? ` · ${r.running} running` : ""}`}
         </span>
         <Link
           href="/?duel=1"
-          className="text-xs font-mono text-[#00ff88] hover:underline"
+          className="text-xs font-mono text-best hover:underline"
         >
           send it out →
         </Link>
@@ -127,29 +127,29 @@ export default function BotsPage() {
   return (
     <main className="min-h-screen flex flex-col">
       <header className="border-b border-zinc-900 px-6 py-4 flex items-center justify-between">
-        <Link href="/" className="text-sm text-zinc-400 hover:text-white transition-colors">
+        <Link href="/" className="text-sm text-ink-dim hover:text-white transition-colors">
           ← Back
         </Link>
         <Wordmark />
-        <Link href="/leaderboard" className="text-sm text-zinc-400 hover:text-white transition-colors">
+        <Link href="/leaderboard" className="text-sm text-ink-dim hover:text-white transition-colors">
           Leaderboard
         </Link>
       </header>
 
       <div className="flex-1 px-6 py-10 max-w-5xl mx-auto w-full">
         <h1 className="text-3xl font-bold mb-2">Your bots</h1>
-        <p className="text-zinc-500 text-sm mb-8 max-w-xl">
+        <p className="text-ink-faint text-sm mb-8 max-w-xl">
           Describe how you want to trade and the AI writes the strategy. The bot is yours —
           take it into as many duels as you like.
         </p>
 
         {building ? (
-          <div className="border border-zinc-800 rounded-xl p-6 bg-zinc-950 mb-10">
+          <div className="border border-track-line rounded-xl p-6 bg-track-soft mb-10">
             <div className="flex items-baseline justify-between mb-4">
               <h2 className="font-bold">Build a bot</h2>
               <button
                 onClick={() => setBuilding(false)}
-                className="text-xs font-mono text-zinc-600 hover:text-zinc-400"
+                className="text-xs font-mono text-ink-faint hover:text-ink-dim"
               >
                 cancel
               </button>
@@ -164,16 +164,16 @@ export default function BotsPage() {
         ) : (
           <button
             onClick={() => setBuilding(true)}
-            className="bg-[#00ff88] text-black font-bold px-5 py-2.5 rounded-lg hover:bg-[#00cc6a] transition-colors mb-10"
+            className="bg-best text-track font-display tracking-wide px-5 py-2.5 rounded-md hover:brightness-110 transition-all mb-10"
           >
             + Build a bot
           </button>
         )}
 
         {loaded && bots.length === 0 && !building && (
-          <div className="border border-dashed border-zinc-800 rounded-xl p-10 text-center mb-12">
-            <p className="text-zinc-400 mb-1">No bots yet.</p>
-            <p className="text-xs text-zinc-600 font-mono">
+          <div className="border border-dashed border-track-line rounded-xl p-10 text-center mb-12">
+            <p className="text-ink-dim mb-1">No bots yet.</p>
+            <p className="text-xs text-ink-faint font-mono">
               Building one takes a sentence — say how it should trade.
             </p>
           </div>
@@ -189,15 +189,15 @@ export default function BotsPage() {
 
         <div className="border-t border-zinc-900 pt-10">
           <h2 className="text-xl font-bold mb-1">Who you might face</h2>
-          <p className="text-zinc-500 text-sm mb-6 max-w-xl">
+          <p className="text-ink-faint text-sm mb-6 max-w-xl">
             The house keeps these six. One takes your challenge the moment you make it, and
             which one is random — so you cannot tune against the opponent in advance.
           </p>
           <div className="grid md:grid-cols-3 gap-3">
             {HOUSE_ROSTER.map((h) => (
-              <div key={h.name} className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
+              <div key={h.name} className="border border-track-line rounded-lg p-4 bg-track-soft">
                 <div className="font-bold text-sm mb-1">{h.name}</div>
-                <div className="text-xs text-zinc-500 font-mono leading-relaxed">{h.style}</div>
+                <div className="text-xs text-ink-faint font-mono leading-relaxed">{h.style}</div>
               </div>
             ))}
           </div>
