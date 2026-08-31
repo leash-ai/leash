@@ -7,6 +7,7 @@ import { useMyBots, Bot } from "@/hooks/useMyBots";
 import { BotBuilder } from "@/components/BotBuilder";
 import { HOUSE_ROSTER } from "@/lib/houseRoster";
 import { useWallet } from "@/context/WalletContext";
+import { Wordmark } from "@/components/Logo";
 
 const DM_ABI = [
   "function getDuel(uint256) view returns (address agentA, address agentB, uint256 stake, uint256 startTime, uint256 endTime, uint8 state, address winner, bool agentASubmitted, bool agentBSubmitted, uint256 createdAt)",
@@ -129,7 +130,7 @@ export default function BotsPage() {
         <Link href="/" className="text-sm text-zinc-400 hover:text-white transition-colors">
           ← Back
         </Link>
-        <span className="font-bold tracking-tight">LEASH</span>
+        <Wordmark />
         <Link href="/leaderboard" className="text-sm text-zinc-400 hover:text-white transition-colors">
           Leaderboard
         </Link>
