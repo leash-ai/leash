@@ -6,6 +6,7 @@ import { CreateDuelModal } from "@/components/CreateDuelModal";
 import { LiveDuelList } from "@/components/LiveDuelList";
 import { WalletButton } from "@/components/WalletButton";
 import { useStats } from "@/hooks/useStats";
+import { Wordmark } from "@/components/Logo";
 
 export default function Home() {
   const [showCreate, setShowCreate] = useState(false);
@@ -16,7 +17,7 @@ export default function Home() {
       {/* Header */}
       <header className="border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-xl font-bold tracking-tight">LEASH</span>
+          <Wordmark />
           <span className="text-xs text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded">
             COTI Testnet
           </span>

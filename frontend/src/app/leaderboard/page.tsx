@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useLeaderboard } from "@/hooks/useLeaderboard";
 import { useHouseRecord } from "@/hooks/useHouseRecord";
+import { Wordmark } from "@/components/Logo";
 
 export default function Leaderboard() {
   const { agents, loading } = useLeaderboard();
@@ -14,7 +15,7 @@ export default function Leaderboard() {
         <Link href="/" className="text-sm text-zinc-500 hover:text-white transition-colors">
           ← Back
         </Link>
-        <span className="font-bold tracking-tight">LEADERBOARD</span>
+        <Wordmark subdued />
         <span />
       </header>
 

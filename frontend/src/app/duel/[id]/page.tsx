@@ -9,6 +9,7 @@ import { SettlementPanel } from "@/components/SettlementPanel";
 import { DuelChart } from "@/components/DuelChart";
 import { useDuelHistory } from "@/hooks/useDuelHistory";
 import { useLiveMarks } from "@/hooks/useLiveMarks";
+import { Wordmark } from "@/components/Logo";
 import { useMyBots } from "@/hooks/useMyBots";
 import { opponentFor } from "@/lib/houseRoster";
 import { ethers } from "ethers";
@@ -97,6 +98,19 @@ export default function DuelPage() {
   const live = useLiveMarks(duelId, history, duel ? Number(duel.startTime) : undefined);
   const curve = live.length > history.length ? live : history;
 
+  /*
+    One number per side on the page, not two.
+
+    The panels read getLivePnL from the chain while the chart drew the feed, so
+    the same score appeared twice with different values — the chain lags by a
+    batch, and two disagreeing figures on one screen is the fastest way to make
+    real data look invented. Both read the curve now, with the chain as the
+    fallback when there is no feed, which is also what settles.
+  */
+  const latest = curve[curve.length - 1];
+  const shownA = latest?.a ?? livePnL.pnlA;
+  const shownB = latest?.b ?? livePnL.pnlB;
+
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -129,7 +143,7 @@ export default function DuelPage() {
 
   // Only meaningful once both sides have actually reported something.
   const bothReported = duel.agentASubmitted && duel.agentBSubmitted;
-  const aWinning = livePnL.pnlA > livePnL.pnlB;
+  const aWinning = shownA > shownB;
   const isResolved = duel.state === 2;
   const isActive = duel.state === 1;
 
@@ -179,7 +193,7 @@ export default function DuelPage() {
         <Link href="/" className="text-sm text-zinc-500 hover:text-white transition-colors">
           ← Back
         </Link>
-        <span className="font-bold tracking-tight">LEASH</span>
+        <Wordmark />
         <span className={`text-sm font-mono ${STATE_COLORS[duel.state] ?? "text-zinc-400"}`}>
           {STATE_LABELS[duel.state] ?? "Unknown"}
         </span>
@@ -204,7 +218,7 @@ export default function DuelPage() {
           {/* Agent A */}
           <div className={`border rounded-lg p-6 ${aWinning ? "border-[#00ff88]" : "border-zinc-800"}`}>
             <Side who={identify(duel.agentA, "AGENT A")} />
-            <Score bps={livePnL.pnlA} reported={duel.agentASubmitted} />
+            <Score bps={shownA} reported={duel.agentASubmitted} />
             {aWinning && isActive && bothReported && (
               <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
             )}
@@ -230,7 +244,7 @@ export default function DuelPage() {
             ) : (
               <>
                 <Side who={identify(duel.agentB, "AGENT B")} />
-                <Score bps={livePnL.pnlB} reported={duel.agentBSubmitted} />
+                <Score bps={shownB} reported={duel.agentBSubmitted} />
                 {!aWinning && isActive && bothReported && (
                   <div className="text-xs text-[#00ff88] mt-2">● Leading</div>
                 )}
@@ -248,10 +262,20 @@ export default function DuelPage() {
           />
         </div>
 
-        {/* Agent Chat */}
-        <div className="mb-8">
-          <AgentChat duelId={duelId} isActive={isActive} />
-        </div>
+        {/*
+          The feed, only while there is one.
+
+          Before a duel starts it showed an empty box saying "define your
+          strategy before the duel starts" over a text field — but the strategy
+          came from the bot you built, and typing here changed nothing. An input
+          that does nothing is worse than no input: it implies a step you have
+          already taken and leaves you wondering whether you missed it.
+        */}
+        {(isActive || isResolved) && (
+          <div className="mb-8">
+            <AgentChat duelId={duelId} isActive={isActive} />
+          </div>
+        )}
 
         {/* Settlement — the stretch between the final whistle and the payout. A duel
             does not resolve itself; without this the stakes just sit there. */}

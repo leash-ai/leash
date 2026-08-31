@@ -7,6 +7,37 @@ import { useMyBots } from "@/hooks/useMyBots";
 
 const HOUSE_ADDRESS = process.env.NEXT_PUBLIC_HOUSE_BOT_ADDRESS?.toLowerCase() ?? null;
 
+
+/** One side of a row: who, and where they stand. */
+function Corner({
+  name,
+  score,
+  ahead,
+  align = "left",
+}: {
+  name: string;
+  score: string | null;
+  ahead: boolean;
+  align?: "left" | "right";
+}) {
+  return (
+    <div className={`flex items-baseline gap-2.5 min-w-0 ${align === "right" ? "justify-end" : ""}`}>
+      <span className={`font-mono text-sm truncate ${ahead ? "text-white" : "text-zinc-400"}`}>
+        {name}
+      </span>
+      {score && (
+        <span
+          className={`font-mono text-xs tabular-nums shrink-0 ${
+            ahead ? "text-[#00ff88]" : "text-zinc-600"
+          }`}
+        >
+          {score}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function LiveDuelList() {
   const { duels, loading } = useActiveDuels();
   const { bots } = useMyBots();
@@ -26,10 +57,19 @@ export function LiveDuelList() {
   return (
     <div className="space-y-3">
       {duels.map((duel) => {
+        /*
+          A duel nobody has joined has no clock.
+
+          endTime holds the raw duration until someone joins, so an open duel was
+          rendering "0h 0m left" — a countdown that had already expired for a
+          duel that had not started. Waiting and nearly over look the same at a
+          glance, and only one of them is true.
+        */
+        const open = duel.state === 0;
         const endTime = Number(duel.endTime) * 1000;
-        const remaining = Math.max(0, endTime - Date.now());
-        const hours = Math.floor(remaining / 3600000);
-        const minutes = Math.floor((remaining % 3600000) / 60000);
+        const remaining = open ? 0 : Math.max(0, endTime - Date.now());
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
         const prize = (Number(duel.stake) * 2 * 0.95) / 1e18;
 
         // Names on both sides where there are names. The house side is derivable
@@ -60,43 +100,38 @@ export function LiveDuelList() {
           <Link
             key={duel.id}
             href={`/duel/${duel.id}`}
-            className="border border-zinc-800 rounded-lg p-4 flex items-center gap-4 hover:border-zinc-600 transition-colors block"
+            className="group border border-zinc-800 rounded-xl px-5 py-4 flex items-center gap-5 hover:border-zinc-600 hover:bg-zinc-900/40 transition-colors block"
           >
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[#00ff88] animate-pulse" />
-              <span className="text-sm font-mono text-zinc-400">#{duel.id}</span>
+            <span className="text-xs font-mono text-zinc-600 w-8 shrink-0 group-hover:text-zinc-400 transition-colors">
+              #{duel.id}
+            </span>
+
+            {/* The scoreboard. Whoever is ahead is the only thing in colour. */}
+            <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-4 min-w-0">
+              <Corner name={name(duel.agentA, true)} score={score(duel.pnlA)} ahead={ahead === "a"} />
+              <span className="text-[10px] font-mono text-zinc-700 tracking-widest">VS</span>
+              {open ? (
+                <span className="text-sm font-mono text-zinc-600 text-right">waiting for an opponent…</span>
+              ) : (
+                <Corner
+                  name={name(duel.agentB, false)}
+                  score={score(duel.pnlB)}
+                  ahead={ahead === "b"}
+                  align="right"
+                />
+              )}
             </div>
 
-            <div className="flex-1">
-              <div className="flex items-center gap-2 text-sm">
-                <span
-                  className={`font-mono truncate w-28 ${ahead === "a" ? "text-[#00ff88]" : "text-zinc-400"}`}
-                >
-                  {name(duel.agentA, true)}
-                </span>
-                {score(duel.pnlA) && (
-                  <span className="font-mono text-xs text-zinc-500 w-14">{score(duel.pnlA)}</span>
-                )}
-
-                <span className="text-zinc-600">vs</span>
-
-                <span
-                  className={`font-mono truncate w-28 ${ahead === "b" ? "text-[#00ff88]" : "text-zinc-400"}`}
-                >
-                  {duel.agentB === "0x0000000000000000000000000000000000000000"
-                    ? "waiting..."
-                    : name(duel.agentB, false)}
-                </span>
-                {score(duel.pnlB) && (
-                  <span className="font-mono text-xs text-zinc-500 w-14">{score(duel.pnlB)}</span>
-                )}
+            <div className="text-right shrink-0 w-28">
+              <div className="text-sm font-bold text-[#00ff88] tabular-nums">
+                {prize.toFixed(3)} COTI
               </div>
-            </div>
-
-            <div className="text-right">
-              <div className="text-sm font-bold text-[#00ff88]">{prize.toFixed(3)} COTI</div>
-              <div className="text-xs text-zinc-600 font-mono">
-                {hours}h {minutes}m left
+              <div className="text-[11px] text-zinc-600 font-mono tabular-nums">
+                {open ? (
+                  <span className="text-yellow-500/80">open</span>
+                ) : (
+                  `${mins}:${String(secs).padStart(2, "0")} left`
+                )}
               </div>
             </div>
           </Link>

@@ -240,7 +240,9 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
   }
 
   return (
-    <div className="border border-zinc-800 rounded-lg flex flex-col" style={{ height: "360px" }}>
+    // Grows with the feed up to a ceiling, rather than reserving 360px whatever
+    // is in it — early in a duel that was four lines above a field of black.
+    <div className="border border-zinc-800 rounded-xl flex flex-col max-h-[360px] min-h-[180px]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800 shrink-0">
         <div className="flex items-center gap-2">
@@ -265,7 +267,7 @@ export function AgentChat({ duelId, isActive }: AgentChatProps) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-1.5 text-xs font-mono">
+      <div className="flex-1 overflow-y-auto p-4 space-y-2 text-xs font-mono">
         {messages.length === 0 && (
           <div className="text-zinc-600 text-center pt-6">
             {isActive

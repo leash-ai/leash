@@ -191,8 +191,22 @@ def main():
             page.locator("button", has_text="Build a bot").first.click()
             page.wait_for_timeout(1500)
             page.locator("button", has_text="Patient").first.click()
-            page.wait_for_timeout(25000)
-            saved = [l.strip() for l in page.inner_text("body").splitlines() if l.strip().startswith("Save ")]
+
+            # The designer may ask one clarifying question, and a strategy whose
+            # triggers cannot fire costs a corrective turn — either doubles the
+            # wait. Answer once and keep waiting, which is what a person does.
+            saved = []
+            composer = 'input[placeholder="How should it trade?"]'
+            for round_number in range(3):
+                page.wait_for_timeout(20000)
+                saved = [l.strip() for l in page.inner_text("body").splitlines()
+                         if l.strip().startswith("Save ")]
+                if saved:
+                    break
+                if page.locator(composer).count() > 0:
+                    page.fill(composer, "That is enough detail — build it.")
+                    page.keyboard.press("Enter")
+
             check("the model designs a bot", bool(saved), saved[0] if saved else "no bot offered")
             if not saved:
                 raise SystemExit(1)
