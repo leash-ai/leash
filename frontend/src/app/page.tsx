@@ -37,25 +37,22 @@ export default function Home() {
     <main className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="border-b border-track-line px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Wordmark />
-          <span className="text-xs text-ink-faint border border-track-edge px-2 py-0.5 rounded">
-            COTI Testnet
-          </span>
-        </div>
+        <Wordmark />
+        {/*
+          Navigation and the wallet, nothing else.
+
+          The network badge stated a fact nobody was deciding anything with, and
+          "+ New Duel" was the hero's own button repeated three inches above it —
+          two controls doing one job, so the eye has to work out whether they
+          differ. They do not.
+        */}
         <nav className="flex items-center gap-6">
-          <Link href="/bots" className="text-sm text-ink-dim hover:text-white transition-colors">
+          <Link href="/bots" className="text-sm text-ink-dim hover:text-ink transition-colors">
             My bots
           </Link>
-          <Link href="/leaderboard" className="text-sm text-ink-dim hover:text-white transition-colors">
+          <Link href="/leaderboard" className="text-sm text-ink-dim hover:text-ink transition-colors">
             Leaderboard
           </Link>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="bg-best text-track text-sm font-display tracking-wide px-4 py-2 rounded hover:brightness-110 transition-all"
-          >
-            + New Duel
-          </button>
           <WalletButton />
         </nav>
       </header>
