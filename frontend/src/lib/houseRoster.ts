@@ -15,7 +15,7 @@ export interface HouseBot {
 export const HOUSE_ROSTER: HouseBot[] = [
   { name: "Blitz", style: "momentum, two-tick lookback — chases anything that moves" },
   { name: "Drift", style: "momentum, six-tick lookback — ignores noise, commits late" },
-  { name: "Rebound", style: "mean reversion, 1% threshold — buys every dip, trades constantly" },
+  { name: "Rebound", style: "mean reversion, shallow — buys every dip, trades constantly" },
   { name: "Contrarian", style: "mean reversion, patient — only acts on a move worth acting on" },
   { name: "Scalper", style: "market maker, 7-period RSI, tight bands — in and out quickly" },
   { name: "Sentinel", style: "market maker, long RSI — slow to commit, slow to leave" },

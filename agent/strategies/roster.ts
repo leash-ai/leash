@@ -12,12 +12,19 @@
  *   marketMaker    a short RSI period is twitchy; a long one is slow to commit
  *
  * Tuned against a duel that lasts minutes, not days, and the ceiling is tighter
- * than it looks. At a 30-second tick a ten-minute duel is twenty data points, so
- * an RSI period of 18 is not "slow" — it is an indicator that never becomes
- * computable before the clock stops. A 3.5% mean-reversion trigger is reasonable
- * on a daily chart and never fires inside ten minutes. The first pass had two of
- * these six sitting out every duel; that is not a conservative opponent, it is
- * no opponent. Every entry below is checked to actually trade.
+ * than it looks — twice now I have got it wrong in the same direction.
+ *
+ * The first pass used lookbacks off a daily chart: an RSI period of 18 is not
+ * "slow" here, it is an indicator that never becomes computable before the clock
+ * stops. Fixing those left the thresholds, which were worse and harder to see —
+ * momentum wanted half a percent over its lookback and mean reversion a full
+ * one, while a whole duel covers about a tenth. Blitz published 0.00% for an
+ * entire duel without one trade, and from the outside that is indistinguishable
+ * from a broken product.
+ *
+ * A threshold only means something next to the span it is measured over, so both
+ * are set here rather than baked into the strategies. roster-trades.test.ts runs
+ * every entry over a realistic duel and fails any that never opens a position.
  *
  * All of it is rules over the price feed. No model, no API key, nothing that can
  * stop answering because a provider is down — which matters for the one thing
@@ -39,22 +46,22 @@ export const ROSTER: Opponent[] = [
   {
     name: "Blitz",
     style: "momentum, two-tick lookback — chases anything that moves",
-    build: () => new MomentumStrategy(1000, 2),
+    build: () => new MomentumStrategy(1000, 2, 0.00005),
   },
   {
     name: "Drift",
     style: "momentum, six-tick lookback — ignores noise, commits late",
-    build: () => new MomentumStrategy(1000, 6),
+    build: () => new MomentumStrategy(1000, 6, 0.0002),
   },
   {
     name: "Rebound",
-    style: "mean reversion, 1% threshold — buys every dip, trades constantly",
-    build: () => new MeanReversionStrategy(4, 0.01),
+    style: "mean reversion, shallow — buys every dip, trades constantly",
+    build: () => new MeanReversionStrategy(4, 0.00005),
   },
   {
     name: "Contrarian",
     style: "mean reversion, patient — only acts on a move worth acting on",
-    build: () => new MeanReversionStrategy(8, 0.012),
+    build: () => new MeanReversionStrategy(8, 0.0002),
   },
   {
     name: "Scalper",
