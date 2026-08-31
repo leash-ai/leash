@@ -6,7 +6,7 @@ import { fetchPrices, Prices } from "./prices";
 import { fetchPriceHistory } from "../strategies/warmup";
 import { scoreBps } from "../notional";
 import { startLivePrices, currentPrices } from "../livePrices";
-import { nonceManagerFor } from "../nonces";
+import { nonceManagerFor, withNonceRetry } from "../nonces";
 import { getPnLBpsExact } from "./portfolio";
 import { TradingAgent, AgentState } from "./ai_agent";
 import { cotiWallet, submitFinalPnL } from "../coti/settlement";
@@ -197,7 +197,9 @@ export async function runDuel(
     const ages = run.map((p) => Math.max(0, Math.min(0xffffffff, sentAt - p.at)));
 
     try {
-      const tx = await dm.updateLivePnLBatch(duelId, values, ages, { gasLimit: 900_000n });
+      const tx = await withNonceRetry(wallet, () =>
+        dm.updateLivePnLBatch(duelId, values, ages, { gasLimit: 900_000n }),
+      );
       lastReportedPnlBps = run[run.length - 1].bps;
       emit("pnl", { pnlBps: lastReportedPnlBps, points: run.length, txHash: tx.hash });
       tx.wait().catch((e: any) => {

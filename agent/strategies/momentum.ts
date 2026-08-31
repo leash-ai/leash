@@ -31,9 +31,21 @@ export class MomentumStrategy {
   /** How many ticks back to measure the move over. Short reacts fast and
    *  chases noise; long ignores noise and enters late. */
   private readonly LOOKBACK: number;
+  private readonly THRESHOLD: number;
 
-  constructor(virtualCapital: number = 1000, lookback: number = 3) {
+  /**
+   * @param threshold Fractional move over the lookback that opens a position.
+   *
+   *   Was hardcoded at 0.005 — half a percent. A duel lasts minutes and spot
+   *   crypto covers about a tenth of a percent in that time, so over a two-tick
+   *   lookback the bar was fifty times what the market offers: Blitz published
+   *   0.00% for an entire duel without a single trade. A threshold is only
+   *   meaningful next to the span it is measured over, so it belongs with the
+   *   lookback rather than baked into the class.
+   */
+  constructor(virtualCapital: number = 1000, lookback: number = 3, threshold: number = 0.005) {
     this.LOOKBACK = Math.max(2, lookback);
+    this.THRESHOLD = threshold;
     this.portfolio = {
       cashPercent: 100,
       positions: [],
@@ -71,8 +83,9 @@ export class MomentumStrategy {
 
     const trades = [];
 
-    // Go long on strongest positive momentum (>0.5%)
-    if (signals[0].return > 0.005) {
+    // Long the strongest riser, short the steepest faller, when either clears
+    // the threshold this strategy was tuned with.
+    if (signals[0].return > this.THRESHOLD) {
       trades.push({
         asset: signals[0].asset,
         side: "long" as const,
@@ -80,8 +93,7 @@ export class MomentumStrategy {
       });
     }
 
-    // Go short on strongest negative momentum (<-0.5%)
-    if (signals[signals.length - 1].return < -0.005) {
+    if (signals[signals.length - 1].return < -this.THRESHOLD) {
       trades.push({
         asset: signals[signals.length - 1].asset,
         side: "short" as const,

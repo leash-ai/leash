@@ -8,6 +8,7 @@ dotenv.config();
 import { TradingAgent, createAgentState, AgentState } from "./ai_agent";
 import { runDuel, FeedEvent } from "./runner";
 import { unreachableTriggers, rescaleRequest } from "./strategyScale";
+import { watchForOwnDuels } from "./watcher";
 
 const app = express();
 app.use(cors({ origin: "*" }));
@@ -216,28 +217,8 @@ const STRATEGY_BRIEFS: Record<string, string> = {
 app.post("/agent/duel/:id/start", async (req, res) => {
   const duelId = Number(req.params.id);
   const { signerKey, strategy } = req.body as { signerKey?: string; strategy?: string };
-  const entry = getOrCreate(duelId);
-
-  if (strategy) {
-    entry.state.strategy = STRATEGY_BRIEFS[strategy] ?? strategy;
-  }
-
-  if (entry.running) {
-    return res.json({ ok: true, message: "already running" });
-  }
-
-  entry.running = true;
-  entry.state.duelId = duelId;
-
-  runDuel(duelId, entry.state, (event) => {
-    broadcast(duelId, event);
-    if (event.type === "end") entry.running = false;
-  }, signerKey).catch((e) => {
-    broadcast(duelId, { type: "error", timestamp: Date.now(), data: { message: e.message } });
-    entry.running = false;
-  });
-
-  res.json({ ok: true, duelId });
+  const started = startDuel(duelId, strategy, signerKey);
+  res.json({ ok: true, duelId, message: started ? undefined : "already running" });
 });
 
 /**
@@ -289,6 +270,46 @@ app.get("/agent/duel/:id/status", (req, res) => {
 
 // Health check
 app.get("/health", (_, res) => res.json({ ok: true }));
+
+/**
+ * Start a duel, however this server heard about it.
+ *
+ * Extracted from the /start route so the chain watcher can use the same path.
+ * Returns whether it started anything, since a duel already running keeps the
+ * strategy it was given.
+ */
+function startDuel(duelId: number, strategy?: string, signerKey?: string): boolean {
+  const entry = getOrCreate(duelId);
+  if (strategy) entry.state.strategy = STRATEGY_BRIEFS[strategy] ?? strategy;
+  if (entry.running) return false;
+
+  entry.running = true;
+  entry.state.duelId = duelId;
+
+  runDuel(duelId, entry.state, (event) => {
+    broadcast(duelId, event);
+    if (event.type === "end") entry.running = false;
+  }, signerKey).catch((e) => {
+    broadcast(duelId, { type: "error", timestamp: Date.now(), data: { message: e.message } });
+    entry.running = false;
+  });
+
+  return true;
+}
+
+/*
+  Play the duels this agent was named on, whether or not anyone said so.
+
+  The duel form posts to /start right after createDuelWithAgent and does not
+  wait for an answer. If this server was restarting, or the request was dropped,
+  nothing picked it up: the duel ran to the end with one side reporting nothing,
+  the page said "never reported", and a stake was lost to a race that never
+  happened. The authorisation is on-chain, so it does not have to be told.
+*/
+watchForOwnDuels(
+  (duelId) => startDuel(duelId),
+  (duelId) => duels.get(duelId)?.running === true,
+);
 
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, () =>

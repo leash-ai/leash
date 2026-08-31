@@ -129,12 +129,30 @@ export function CreateDuelModal({ onClose }: Props) {
         // trades. Without this you stake, watch a flat line and lose by forfeit
         // — which is precisely what happened the first time a duel was created
         // from this page. Best effort: the duel exists either way.
+        /*
+          Retried, because losing this call costs the duel.
+
+          It used to be sent once and forgotten. If the agent server was
+          restarting, the duel ran to the end with your side reporting nothing —
+          "never reported" on the page and a stake gone to a race that never
+          happened. The server also watches the chain for duels naming it, so
+          this is now the fast path rather than the only one; three attempts
+          covers a restart without making the user wait.
+        */
         if (AGENT_URL) {
-          fetch(`${AGENT_URL}/agent/duel/${id}/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ strategy: selected?.strategy }),
-          }).catch(() => {});
+          void (async () => {
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                const res = await fetch(`${AGENT_URL}/agent/duel/${id}/start`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ strategy: selected?.strategy }),
+                });
+                if (res.ok) return;
+              } catch { /* try again below */ }
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+          })();
         }
       }
     } catch (e: unknown) {
