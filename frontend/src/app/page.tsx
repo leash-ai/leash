@@ -4,13 +4,34 @@ import { useState } from "react";
 import Link from "next/link";
 import { CreateDuelModal } from "@/components/CreateDuelModal";
 import { LiveDuelList } from "@/components/LiveDuelList";
+import { ReplayRail } from "@/components/ReplayRail";
+import { useDuelBoard, BoardDuel } from "@/hooks/useDuelBoard";
+import { opponentFor } from "@/lib/houseRoster";
 import { WalletButton } from "@/components/WalletButton";
 import { useStats } from "@/hooks/useStats";
 import { Wordmark } from "@/components/Logo";
 
+const HOUSE_ADDRESS = process.env.NEXT_PUBLIC_HOUSE_BOT_ADDRESS?.toLowerCase() ?? null;
+
 export default function Home() {
   const [showCreate, setShowCreate] = useState(false);
   const { stats } = useStats();
+  const { live, finished } = useDuelBoard();
+
+  /*
+    The house side is derivable from the chain, so a replay names its opponent
+    rather than showing a wallet. Yours stays an address here: the bot that
+    played is remembered by the browser that sent it, and a replay is something
+    anyone can open.
+  */
+  const nameFor = (duel: BoardDuel, side: "a" | "b") => {
+    const address = side === "a" ? duel.agentA : duel.agentB;
+    if (HOUSE_ADDRESS && address.toLowerCase() === HOUSE_ADDRESS) {
+      const bot = opponentFor(duel.id, Number(duel.startTime));
+      if (bot) return bot.name;
+    }
+    return `${address.slice(0, 8)}…`;
+  };
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -67,14 +88,19 @@ export default function Home() {
             href="/bots"
             className="bg-best text-track font-display text-lg tracking-wide px-8 py-3.5 rounded-md hover:brightness-110 transition-all"
           >
-            Build your bot
+            Build a bot
           </Link>
-          <Link
-            href="#live"
+          {/*
+            "Watch a duel" scrolled to a list that is empty on a quiet minute —
+            a button whose only promise is that something might be happening.
+            Launching one is the action the page is for, and it always works.
+          */}
+          <button
+            onClick={() => setShowCreate(true)}
             className="border border-track-edge text-ink-dim font-display text-lg tracking-wide px-8 py-3.5 rounded-md hover:border-ink-faint hover:text-ink transition-colors"
           >
-            Watch a duel
-          </Link>
+            Launch a duel
+          </button>
         </div>
         <p className="text-ink-faint text-xs font-mono mt-4">
           0.1 COTI a duel, same both sides · 2 min, 10 min or an hour
@@ -137,11 +163,43 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Live Duels */}
-      <section id="live" className="px-6 py-12 flex-1">
+      {/*
+        The board: what is running, then what has run.
+
+        Only live duels were listed, so on a quiet minute the page ended in an
+        empty box — a product with nothing happening in it. Finished duels are
+        the other half and they are not dead weight: the whole curve is rebuilt
+        from the chain, so any of them can be watched back. They browse sideways,
+        the way a catalogue does, rather than adding rows to scroll past.
+      */}
+      <section id="live" className="px-6 py-12 flex-1 border-b border-track-line/60">
         <div className="max-w-4xl mx-auto">
-          <h2 className="font-display text-xl tracking-board uppercase text-ink-dim mb-5">Live Duels</h2>
+          <div className="flex items-baseline gap-3 mb-5">
+            <h2 className="font-display text-xl tracking-board uppercase text-ink-dim">
+              Running now
+            </h2>
+            {live.length > 0 && (
+              <span className="flex items-center gap-1.5 text-[10px] font-display tracking-board uppercase text-gain">
+                <span className="w-1.5 h-1.5 rounded-full bg-gain animate-pulse" />
+                {live.length}
+              </span>
+            )}
+          </div>
           <LiveDuelList />
+        </div>
+      </section>
+
+      <section className="px-6 py-12">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-baseline justify-between gap-3 mb-5">
+            <h2 className="font-display text-xl tracking-board uppercase text-ink-dim">
+              Replays
+            </h2>
+            <span className="text-[11px] text-ink-faint">
+              Every finished duel, replayed from the chain
+            </span>
+          </div>
+          <ReplayRail duels={finished} nameFor={nameFor} />
         </div>
       </section>
 
