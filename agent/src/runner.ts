@@ -229,7 +229,7 @@ export async function runDuel(
   // through the part that decides it — while its opponent, warmed up since its
   // first tick, is already trading. That is not a slow strategy losing, it is a
   // strategy that never got to run.
-  const warm = await fetchPriceHistory(8);
+  const warm = await fetchPriceHistory(12, 10_000);
   state.priceHistory = warm.history.map(({ timestamp, ...prices }) => prices as Prices);
   emit("info", {
     message: warm.history.length
