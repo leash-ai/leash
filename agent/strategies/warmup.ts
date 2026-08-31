@@ -147,10 +147,33 @@ async function loadHistory(): Promise<PriceData[]> {
   return out;
 }
 
-/** Recent price points, oldest first, plus why there are none if there are none. */
+/**
+ * Recent prices at the spacing the duel will use.
+ *
+ * The hourly series below was the wrong shape for this. A strategy averaging its
+ * last eight points is asking about the last eighty seconds once a duel starts,
+ * and it was being handed eight hours — so for its first eight live ticks the
+ * average was dominated by prices from another day and the deviations meant
+ * nothing. Contrarian sat at exactly 0.00% for the first fifty seconds of a duel
+ * and then came alive, which reads as a bot that could not be bothered.
+ *
+ * Binance publishes one-second candles, so a warm-up can be built at whatever
+ * spacing the caller ticks at. Same shape in, same shape out.
+ *
+ * @param points  How many.
+ * @param stepMs  Spacing between them — the strategy tick, not an hour.
+ */
 export async function fetchPriceHistory(
   points: number,
+  stepMs = 10_000,
 ): Promise<{ history: PriceData[]; error?: string }> {
+  try {
+    const history = await fromBinanceCandles(points, stepMs);
+    if (history.length >= 2) return { history };
+  } catch { /* fall through to the hourly series */ }
+
+  // Better than nothing when Binance is unreachable: the shape is wrong but a
+  // strategy with some history still beats one with none.
   try {
     cached ??= loadHistory();
     const all = await cached;
@@ -161,6 +184,43 @@ export async function fetchPriceHistory(
   }
 }
 
+const CANDLE_SYMBOLS: Record<string, string> = {
+  BTC: "BTCUSDT",
+  ETH: "ETHUSDT",
+  SOL: "SOLUSDT",
+};
+
+async function fromBinanceCandles(points: number, stepMs: number): Promise<PriceData[]> {
+  const stride = Math.max(1, Math.round(stepMs / 1000));
+  const limit = Math.min(1000, points * stride + stride);
+
+  const series = await Promise.all(
+    Object.entries(CANDLE_SYMBOLS).map(async ([asset, symbol]) => {
+      const url =
+        `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1s&limit=${limit}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) throw new Error(`Binance klines ${res.status}`);
+      const rows = (await res.json()) as unknown[][];
+      // [4] is the close. Sampled every `stride` seconds so the gaps match the
+      // gaps the strategy will see once the duel starts.
+      const closes = rows.map((r) => Number(r[4])).filter((n) => Number.isFinite(n));
+      return [asset, closes.filter((_, i) => i % stride === stride - 1).slice(-points)] as const;
+    }),
+  );
+
+  const byAsset = Object.fromEntries(series);
+  const length = Math.min(...series.map(([, values]) => values.length));
+  if (length < 2) throw new Error("not enough candles");
+
+  const now = Date.now();
+  return Array.from({ length }, (_, i) => ({
+    BTC: byAsset.BTC[byAsset.BTC.length - length + i],
+    ETH: byAsset.ETH[byAsset.ETH.length - length + i],
+    SOL: byAsset.SOL[byAsset.SOL.length - length + i],
+    timestamp: now - (length - 1 - i) * stepMs,
+  })) as PriceData[];
+}
+
 /**
  * Feed a strategy enough history to trade on its first tick.
  *
@@ -169,11 +229,21 @@ export async function fetchPriceHistory(
  * silently reports zero is indistinguishable from one that was never attempted,
  * and that ambiguity cost real time diagnosing a rate limit.
  */
+/**
+ * @param points Enough to fill the longest window in the roster.
+ *
+ *   Five was not. Contrarian averages over eight points and Sentinel needs nine
+ *   for its RSI, and the bot feeds one every strategy tick — so they spent most
+ *   of a three-minute duel unable to compute anything and published 0.00%
+ *   throughout. A warm-up that does not fill the window is a warm-up that leaves
+ *   the bot cold for the part of the duel that decides it.
+ */
 export async function warmUpStrategy(
   strategy: Strategy,
-  points = 5,
+  points = 14,
+  stepMs = 10_000,
 ): Promise<{ points: number; error?: string }> {
-  const { history, error } = await fetchPriceHistory(points);
+  const { history, error } = await fetchPriceHistory(points, stepMs);
   for (const point of history) strategy.addPriceData(point);
   return { points: history.length, error };
 }

@@ -61,11 +61,13 @@ const TICK_MS = Number(process.env.UPDATE_INTERVAL_MS || 3_000);
  * at 0.00% for a whole duel without a single trade. Publishing got faster and
  * the bots stopped playing.
  *
- * Twenty seconds keeps the tuning meaning what it meant. Marks and batches stay
- * fast; the curve moves because the position is marked to market, not because
- * the strategy was asked again.
+ * Ten seconds keeps the tuning meaning what it meant while still fitting a whole
+ * duel: the shortest is two minutes, which at twenty seconds was six points —
+ * fewer than the longest window in the roster needs to produce its first number.
+ * Marks and batches stay fast; the curve moves because the position is marked to
+ * market, not because the strategy was asked again.
  */
-const STRATEGY_TICK_MS = Number(process.env.STRATEGY_INTERVAL_MS || 20_000);
+const STRATEGY_TICK_MS = Number(process.env.STRATEGY_INTERVAL_MS || 10_000);
 
 const DUEL_ABI = [
   "event DuelCreated(uint256 indexed duelId, address indexed agentA, uint256 stake, uint256 duration)",
@@ -121,7 +123,8 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
   log(`duel ${duelId} — you drew ${opponent.name}: ${opponent.style}`);
 
   const strategy = opponent.build();
-  const warm = await warmUpStrategy(strategy);
+  // Same spacing the loop will feed it, so its window means what it says.
+  const warm = await warmUpStrategy(strategy, 14, STRATEGY_TICK_MS);
   if (!warm.points) log(`duel ${duelId} — starting cold (${warm.error ?? "unknown"})`);
 
   let lastReported: number | null = null;

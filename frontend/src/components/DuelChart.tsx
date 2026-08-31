@@ -225,10 +225,15 @@ export function DuelChart({ points, labelA, labelB }: Props) {
             formatter={(v, name) => [pct(typeof v === "number" ? v : null), String(name)]}
           />
 
+          {/*
+            tooltipType="none" as well as legendType: the fills share their keys
+            with the lines, so the tooltip listed every value twice — once as the
+            raw "a"/"b" and once under the bot's name.
+          */}
           <Area type="monotone" dataKey="a" stroke="none" fill="url(#fillA)"
-                isAnimationActive={false} connectNulls legendType="none" />
+                isAnimationActive={false} connectNulls legendType="none" tooltipType="none" />
           <Area type="monotone" dataKey="b" stroke="none" fill="url(#fillB)"
-                isAnimationActive={false} connectNulls legendType="none" />
+                isAnimationActive={false} connectNulls legendType="none" tooltipType="none" />
 
           <Line type="monotone" dataKey="a" name={labelA} stroke={A_COLOR}
                 strokeWidth={2} dot={false} isAnimationActive={false} connectNulls />
