@@ -1,6 +1,39 @@
 import type { Metadata } from "next";
+import { Archivo, Archivo_Narrow, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/context/WalletContext";
+
+/*
+  Three faces, each with a job.
+
+  Everything was set in the system monospace, which is why the page read as a
+  terminal rather than a product. A timing board has a condensed face for
+  headings — narrow letters fit a name in a column — a normal grotesque for
+  prose, and a monospace for anything that has to line up in a column or change
+  every quarter second without moving the layout.
+
+  Archivo Narrow rather than Oswald or Bebas, which are the condensed faces
+  everything else reaches for; JetBrains Mono rather than the system stack, so
+  digits are the same width everywhere. Not Inter: it is the default that makes
+  every product look like the same product.
+*/
+const display = Archivo_Narrow({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-display",
+});
+
+const sans = Archivo({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-sans",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
   title: "Leash — Private AI Agent Duels",
@@ -9,7 +42,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${display.variable} ${sans.variable} ${mono.variable}`}>
       <head>
         {/*
           Errors thrown by browser extensions, kept out of the dev overlay.
@@ -34,7 +67,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className="bg-black text-white antialiased">
+      <body className="bg-track text-ink antialiased">
         <WalletProvider>{children}</WalletProvider>
       </body>
     </html>

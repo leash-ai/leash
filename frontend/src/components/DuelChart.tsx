@@ -6,8 +6,10 @@ import {
 } from "recharts";
 import { PnlPoint } from "@/hooks/useDuelHistory";
 
-const A_COLOR = "#00ff88";
-const B_COLOR = "#5b9dff";
+// Liveries, matching TimingStrip. Two entrants of equal weight — neither is
+// "the brand colour", which is what made the old green read as "the good one".
+const A_COLOR = "#22D3EE";
+const B_COLOR = "#F472B6";
 
 const mmss = (s: number) =>
   `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -104,14 +106,14 @@ function Reading({
     <div className="flex flex-col gap-1 min-w-0">
       <span className="flex items-center gap-2 text-[11px] font-mono">
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
-        <span className="text-zinc-400 truncate">{label}</span>
+        <span className="text-ink-dim truncate">{label}</span>
         {leading && (
-          <span className="text-[9px] tracking-wider text-zinc-600 border border-zinc-800 rounded px-1 py-px shrink-0">
+          <span className="text-[9px] font-display tracking-board text-best border border-best/30 rounded px-1.5 py-px shrink-0">
             LEADING
           </span>
         )}
       </span>
-      <span className="text-xl font-bold tabular-nums leading-none" style={{ color }}>
+      <span className="text-xl font-mono tnum leading-none" style={{ color }}>
         {pct(value)}
       </span>
     </div>
@@ -121,8 +123,8 @@ function Reading({
 export function DuelChart({ points, labelA, labelB }: Props) {
   if (points.length < 2) {
     return (
-      <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-6 h-[260px] flex items-center justify-center">
-        <span className="text-xs font-mono text-zinc-600">
+      <div className="border border-track-line rounded-lg bg-track-soft p-6 h-[260px] flex items-center justify-center">
+        <span className="text-xs font-mono text-ink-faint">
           {points.length === 0
             ? "No scores reported yet — the curves start on the first tick"
             : "One tick so far, waiting for the next"}
@@ -136,7 +138,7 @@ export function DuelChart({ points, labelA, labelB }: Props) {
   const last = points[points.length - 1];
 
   return (
-    <div className="border border-zinc-800 rounded-xl bg-zinc-950 p-5">
+    <div className="border border-track-line rounded-lg bg-track-soft p-5">
       {/*
         The legend carries each side's current reading.
 
@@ -154,10 +156,10 @@ export function DuelChart({ points, labelA, labelB }: Props) {
         {gap !== null && (
           <span className="text-[11px] font-mono text-right shrink-0">
             {gap === 0 ? (
-              <span className="text-zinc-500">level — a tie goes to {labelB}</span>
+              <span className="text-ink-faint">level — a tie goes to {labelB}</span>
             ) : (
               <>
-                <span className="text-zinc-600">gap </span>
+                <span className="text-ink-faint">gap </span>
                 <span className="tabular-nums" style={{ color: gap > 0 ? A_COLOR : B_COLOR }}>
                   {Math.abs(gap / 100).toFixed(2)}%
                 </span>
@@ -194,33 +196,33 @@ export function DuelChart({ points, labelA, labelB }: Props) {
             domain={[0, points[points.length - 1]?.t ?? 0]}
             ticks={xTicks(points)}
             tickFormatter={mmss}
-            stroke="#27272a"
+            stroke="#1F242C"
             tickLine={false}
-            tick={{ fill: "#52525b", fontSize: 11, fontFamily: "monospace" }}
+            tick={{ fill: "#5C6472", fontSize: 11, fontFamily: "var(--font-mono)" }}
           />
           <YAxis
             domain={[lo, hi]}
             tickFormatter={tickFormat(hi - lo)}
             stroke="transparent"
             tickLine={false}
-            tick={{ fill: "#52525b", fontSize: 11, fontFamily: "monospace" }}
+            tick={{ fill: "#5C6472", fontSize: 11, fontFamily: "var(--font-mono)" }}
             width={58}
           />
 
           {/* Break-even: above it an agent is up on the duel, below it down. */}
-          <ReferenceLine y={0} stroke="#3f3f46" strokeDasharray="4 4" />
+          <ReferenceLine y={0} stroke="#2A313B" strokeDasharray="4 4" />
 
           <Tooltip
-            cursor={{ stroke: "#52525b", strokeWidth: 1 }}
+            cursor={{ stroke: "#3A424E", strokeWidth: 1 }}
             contentStyle={{
-              background: "rgba(9,9,11,0.94)",
-              border: "1px solid #27272a",
+              background: "rgba(11,13,16,0.96)",
+              border: "1px solid #2A313B",
               borderRadius: 8,
-              fontFamily: "monospace",
+              fontFamily: "var(--font-mono)",
               fontSize: 12,
               padding: "8px 10px",
             }}
-            labelStyle={{ color: "#a1a1aa", marginBottom: 4 }}
+            labelStyle={{ color: "#9AA2B1", marginBottom: 4 }}
             labelFormatter={(t: number) => `t + ${mmss(t)}`}
             formatter={(v, name) => [pct(typeof v === "number" ? v : null), String(name)]}
           />

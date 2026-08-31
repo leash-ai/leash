@@ -19,7 +19,7 @@ export function Wordmark({ subdued = false }: { subdued?: boolean }) {
     <span className="flex items-center gap-2.5">
       <Logo className="h-7 w-7" />
       <span
-        className={`text-lg font-bold tracking-[0.2em] ${subdued ? "text-zinc-400" : "text-white"}`}
+        className={`text-lg font-bold tracking-[0.2em] ${subdued ? "text-ink-dim" : "text-white"}`}
       >
         LEASH
       </span>
