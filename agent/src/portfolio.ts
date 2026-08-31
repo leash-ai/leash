@@ -21,9 +21,23 @@ export function getCurrentValue(portfolio: Portfolio, prices: Record<string, num
   return value;
 }
 
-export function getPnLBps(portfolio: Portfolio, prices: Record<string, number>): number {
+/**
+ * Return in basis points, unrounded.
+ *
+ * Rounding here and scaling afterwards is what made every score a whole percent:
+ * the duel is scored on a notional position, so a value already snapped to the
+ * nearest basis point came out as a multiple of the multiplier. The curve
+ * climbed in 1.00% steps and looked fabricated, because arithmetic had made it
+ * so. Scale first, round once, at the end.
+ */
+export function getPnLBpsExact(portfolio: Portfolio, prices: Record<string, number>): number {
   const current = getCurrentValue(portfolio, prices);
-  return Math.round((current / portfolio.startValueUSD - 1) * 10_000);
+  return (current / portfolio.startValueUSD - 1) * 10_000;
+}
+
+/** Rounded to whole basis points. For display and for anything on-chain. */
+export function getPnLBps(portfolio: Portfolio, prices: Record<string, number>): number {
+  return Math.round(getPnLBpsExact(portfolio, prices));
 }
 
 export function applyAction(

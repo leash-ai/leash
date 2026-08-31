@@ -30,5 +30,5 @@ export interface Strategy {
    *                          the last publicPnlBps reported, or DuelManager's
    *                          in-circuit pin rejects the submission.
    */
-  calculatePnLBps(prices: PriceData): { publicPnlBps: number; gcEncoded: number };
+  calculatePnLBps(prices: PriceData): { publicPnlBps: number; pnlBpsExact: number; gcEncoded: number };
 }

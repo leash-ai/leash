@@ -6,7 +6,8 @@ import { fetchPrices, Prices } from "./prices";
 import { fetchPriceHistory } from "../strategies/warmup";
 import { scoreBps } from "../notional";
 import { startLivePrices, currentPrices } from "../livePrices";
-import { getPnLBps } from "./portfolio";
+import { nonceManagerFor } from "../nonces";
+import { getPnLBpsExact } from "./portfolio";
 import { TradingAgent, AgentState } from "./ai_agent";
 import { cotiWallet, submitFinalPnL } from "../coti/settlement";
 
@@ -67,7 +68,7 @@ export async function runDuel(
     executes them in nonce order, so "last value wins" still means the last one
     sent.
   */
-  const signer = new ethers.NonceManager(wallet);
+  const signer = nonceManagerFor(wallet);
   const dm = new ethers.Contract(process.env.DUEL_MANAGER_ADDRESS!, DM_ABI, signer);
   const ai = new TradingAgent();
 
@@ -135,7 +136,19 @@ export async function runDuel(
     scheduled, so asking for five is really asking for "as fast as the chain
     allows" without ever queueing two at once.
   */
-  const tickMs = Math.max(3_000, Math.min(6_000, Math.floor(remaining / 80)));
+  /*
+    Deciding and moving are not the same clock.
+
+    Every tick is a model call, and at three seconds the provider starts
+    refusing: the feed filled with "provider rate limit, will retry next tick"
+    and the agent skipped decisions it had already paid for. Nothing was gained
+    by asking that often either — the curve moves because the score is marked
+    four times a second against live prices, which is arithmetic, not a call.
+
+    So: mark at 250ms, publish a batch every four seconds, decide every ten to
+    fifteen. A decision changes the portfolio and shows up in the very next mark.
+  */
+  const tickMs = Math.max(8_000, Math.min(15_000, Math.floor(remaining / 30)));
 
   emit("info", {
     message: `Agent started — wallet ${wallet.address.slice(0, 8)}… | duel ends in ${Math.round(remaining / 1000)}s | tick every ${tickMs / 1000}s`,
@@ -165,7 +178,7 @@ export async function runDuel(
   const marker = setInterval(() => {
     const prices = currentPrices();
     if (!prices) return;
-    const bps = scoreBps(getPnLBps(state.portfolio, prices));
+    const bps = scoreBps(getPnLBpsExact(state.portfolio, prices));
     buffer.push({ bps, at: Date.now() });
     emit("mark", { side: "A", pnlBps: bps });
   }, 250);
@@ -315,7 +328,10 @@ export async function runDuel(
       emit("trade", {
         tradeLog: decision.tradeLog,
         reasoning: decision.reasoning,
-        pnlBps: reportBps,
+        // The score as it stands now, on the same scale as everything else on
+        // the page. decision.pnlBps is the agent's own unscaled reading and put
+        // a different number beside every trade than the one above the chart.
+        pnlBps: scoreBps(getPnLBpsExact(state.portfolio, currentPrices() ?? prices)),
         prices,
       });
 

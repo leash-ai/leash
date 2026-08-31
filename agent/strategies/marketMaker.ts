@@ -85,7 +85,7 @@ export class MarketMakerStrategy {
     state.entryPrice = price;
   }
 
-  calculatePnLBps(currentPrices: PriceData): { publicPnlBps: number; gcEncoded: number } {
+  calculatePnLBps(currentPrices: PriceData): { publicPnlBps: number; pnlBpsExact: number; gcEncoded: number } {
     let totalPnlBps = 0;
     let activePositions = 0;
 
@@ -101,9 +101,14 @@ export class MarketMakerStrategy {
       activePositions++;
     }
 
-    const avgPnlBps = activePositions > 0 ? Math.round(totalPnlBps / activePositions) : 0;
+    // Unrounded alongside the rounded value: the duel scores on a notional
+    // position, so snapping to a whole basis point here made every published
+    // score a multiple of the multiplier — a curve that climbed in 1.00% steps
+    // and looked fabricated. Scale first, round once.
+    const pnlBpsExact = activePositions > 0 ? totalPnlBps / activePositions : 0;
+    const avgPnlBps = Math.round(pnlBpsExact);
     const gcEncoded = avgPnlBps + 100_000_000;
 
-    return { publicPnlBps: avgPnlBps, gcEncoded };
+    return { publicPnlBps: avgPnlBps, pnlBpsExact, gcEncoded };
   }
 }

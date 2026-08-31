@@ -60,3 +60,30 @@ test("the result stays inside what updateLivePnL accepts", () => {
     assert.ok(Math.abs(scoreBps(extreme)) <= 100_000_000);
   }
 });
+
+/**
+ * Scale first, round once.
+ *
+ * getPnLBps rounded to a whole basis point and the multiplier was applied
+ * afterwards, so every published score came out a multiple of LEVERAGE — the
+ * curve climbed in exact 1.00% steps and read as fabricated data. It was
+ * arithmetic, not mocking, which is the sort of thing that comes back quietly.
+ */
+test("real returns do not all land on multiples of the multiplier", () => {
+  // A duel's worth of small moves, the shape of the values actually seen.
+  const reals = Array.from({ length: 60 }, (_, i) => (i - 30) * 0.037);
+  const scaled = reals.map(scoreBps);
+  const onGrid = scaled.filter((v) => v % LEVERAGE === 0).length;
+
+  assert.ok(
+    onGrid < scaled.length / 2,
+    `${onGrid}/${scaled.length} scores landed on the grid — rounding is happening before the scale`,
+  );
+});
+
+test("a move too small to be one basis point still moves the score", () => {
+  // 0.004% is under half a basis point. Rounded first it is zero forever; scaled
+  // first it is worth 0.4% at 100x, which is the whole point of the multiplier.
+  assert.notEqual(scoreBps(0.4), 0);
+  assert.equal(scoreBps(0.4), Math.round(0.4 * LEVERAGE));
+});

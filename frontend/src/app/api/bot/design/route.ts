@@ -160,6 +160,51 @@ function parseDesign(raw: string) {
   }
 }
 
+
+/**
+ * Triggers a duel can never reach.
+ *
+ * Reduced copy of agent/src/strategyScale.ts — Vercel only uploads this package.
+ * The designer keeps writing 1.5% and 2% thresholds off a daily chart, and a
+ * two-to-ten minute duel moves about a tenth of a percent, so a bot with those
+ * holds every tick and finishes flat. Position sizes are legitimately large, so
+ * they are told apart by what follows them.
+ */
+const MAX_TRIGGER_PCT = 0.5;
+
+const SIZE_AFTER =
+  /^\s*(?:of\s+)?(?:(?:the|that|this|its|their|your|each|any|all|available|current|total|remaining|open|existing|entire|held)\s+){0,3}(?:cash|capital|portfolio|positions?|balance|equity|holdings?|allocation|stake|funds)/i;
+
+const SIZE_BEFORE =
+  /(?:buy|sell|allocate|deploy|commit|invest|reduce|trim|add|enter|exit)\s+(?:up\s+to\s+)?$/i;
+
+// Sizes are told apart two ways because one is not enough: the noun after it
+// misses determiners models like ("100% of that position"), and the verb in
+// front of it is decisive on its own.
+function unreachableTriggers(strategy: string): number[] {
+  const out: number[] = [];
+  const pattern = /(\d+(?:\.\d+)?)\s*%/g;
+  for (let m = pattern.exec(strategy); m; m = pattern.exec(strategy)) {
+    const after = strategy.slice(m.index + m[0].length);
+    const before = strategy.slice(Math.max(0, m.index - 24), m.index);
+    if (SIZE_AFTER.test(after) || SIZE_BEFORE.test(before)) continue;
+    const value = Number(m[1]);
+    if (value > MAX_TRIGGER_PCT) out.push(value);
+  }
+  return out;
+}
+
+function rescaleRequest(offenders: number[]): string {
+  const listed = offenders.map((p) => `${p}%`).join(", ");
+  return (
+    `That bot cannot trade here. Its triggers are ${listed}, and a two-to-ten minute ` +
+    `duel on spot crypto moves about 0.1% end to end — those fire roughly never, so ` +
+    `the bot would hold every tick and finish at 0.00%. Keep the same idea and the ` +
+    `same name, but put every entry and exit trigger between 0.02% and ${MAX_TRIGGER_PCT}%. ` +
+    `Position sizes stay as they are.`
+  );
+}
+
 export async function POST(req: Request) {
   let messages: { role: string; content: string }[] | undefined;
   try {
@@ -170,11 +215,29 @@ export async function POST(req: Request) {
   if (!messages?.length) return NextResponse.json({ error: "messages required" }, { status: 400 });
 
   try {
-    const raw = await complete([
-      { role: "system", content: DESIGNER_PROMPT },
-      ...messages.slice(-12),
-    ]);
-    return NextResponse.json(parseDesign(raw));
+    const history = messages.slice(-12);
+    let reply = parseDesign(
+      await complete([{ role: "system", content: DESIGNER_PROMPT }, ...history]),
+    );
+
+    // One corrective turn when the triggers cannot fire. Asking again with the
+    // offending numbers quoted works where the rule in the prompt did not.
+    const offenders = reply.ready ? unreachableTriggers(reply.strategy ?? "") : [];
+    if (offenders.length > 0) {
+      const retry = parseDesign(
+        await complete([
+          { role: "system", content: DESIGNER_PROMPT },
+          ...history,
+          { role: "assistant", content: JSON.stringify(reply) },
+          { role: "user", content: rescaleRequest(offenders) },
+        ]),
+      );
+      if (retry.ready && unreachableTriggers(retry.strategy ?? "").length === 0) {
+        reply = retry;
+      }
+    }
+
+    return NextResponse.json(reply);
   } catch (e) {
     const raw = String((e as Error)?.message ?? "");
     const unusable =
