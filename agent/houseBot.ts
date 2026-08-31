@@ -27,6 +27,7 @@ import { PriceData } from "./strategies/momentum";
 import { drawOpponent } from "./strategies/roster";
 import { scoreBps } from "./notional";
 import { startLivePrices, currentPrices } from "./livePrices";
+import { nonceManagerFor } from "./nonces";
 import { warmUpStrategy } from "./strategies/warmup";
 import { fetchPrices } from "./marketData";
 import { cotiWallet, submitFinalPnL } from "./coti/settlement";
@@ -65,9 +66,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const busy = new Set<string>();
 
 async function play(duelId: bigint, wallet: ethers.Wallet) {
-  // Nonces assigned locally, because live updates are sent without waiting for a
-  // receipt and would otherwise collide on the node's pending count.
-  const dm = new ethers.Contract(DM_ADDR, DUEL_ABI, new ethers.NonceManager(wallet));
+  // One sequence per wallet — see nonces.ts. A manager per duel gave two
+  // concurrent duels the same nonce and silently dropped one of the updates.
+  const dm = new ethers.Contract(DM_ADDR, DUEL_ABI, nonceManagerFor(wallet));
 
   // Only if a grace period was asked for; by default there is none.
   if (GRACE_MS > 0) await sleep(GRACE_MS);
@@ -120,7 +121,7 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
     const live = currentPrices();
     if (!live) return;
     const marked = scoreBps(
-      strategy.calculatePnLBps({ ...(live as any), timestamp: Date.now() }).publicPnlBps,
+      strategy.calculatePnLBps({ ...(live as any), timestamp: Date.now() }).pnlBpsExact,
     );
     buffer.push({ bps: marked, at: Date.now() });
 
@@ -147,7 +148,7 @@ async function play(duelId: bigint, wallet: ethers.Wallet) {
     }
 
     // Scored on a notional position — see notional.ts. Both sides go through it.
-    const publicPnlBps = scoreBps(strategy.calculatePnLBps(prices).publicPnlBps);
+    const publicPnlBps = scoreBps(strategy.calculatePnLBps(prices).pnlBpsExact);
     try {
       /*
         Sent, not awaited.

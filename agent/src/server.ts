@@ -7,6 +7,7 @@ dotenv.config();
 
 import { TradingAgent, createAgentState, AgentState } from "./ai_agent";
 import { runDuel, FeedEvent } from "./runner";
+import { unreachableTriggers, rescaleRequest } from "./strategyScale";
 
 const app = express();
 app.use(cors({ origin: "*" }));
@@ -155,7 +156,31 @@ app.post("/agent/bot/design", async (req, res) => {
   if (!messages?.length) return res.status(400).json({ error: "messages required" });
 
   try {
-    const reply = await ai.design(DESIGNER_PROMPT, messages.slice(-12));
+    let reply = await ai.design(DESIGNER_PROMPT, messages.slice(-12));
+
+    /*
+      One corrective turn when the triggers cannot fire.
+
+      The prompt says to size thresholds for a duel and the model keeps writing
+      1.5% and 2% anyway — numbers off a daily chart. A bot with those holds
+      every tick and finishes flat, which reads as a broken product rather than
+      a badly tuned bot. Asking again with the offending numbers quoted works
+      where the rule alone did not.
+    */
+    const offenders = reply.ready ? unreachableTriggers(reply.strategy ?? "") : [];
+    if (offenders.length > 0) {
+      const retry = await ai.design(DESIGNER_PROMPT, [
+        ...messages.slice(-12),
+        { role: "assistant", content: JSON.stringify(reply) },
+        { role: "user", content: rescaleRequest(offenders) },
+      ]);
+      // Only if it actually helped — a second unusable answer is not an
+      // improvement, and the first at least came from what the user asked for.
+      if (retry.ready && unreachableTriggers(retry.strategy ?? "").length === 0) {
+        reply = retry;
+      }
+    }
+
     res.json(reply);
   } catch (e: any) {
     const raw = String(e?.message ?? "");

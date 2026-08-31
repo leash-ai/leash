@@ -64,7 +64,7 @@ export class MeanReversionStrategy {
     return trades.slice(0, 2); // Max 2 positions
   }
 
-  calculatePnLBps(currentPrices: PriceData): { publicPnlBps: number; gcEncoded: number } {
+  calculatePnLBps(currentPrices: PriceData): { publicPnlBps: number; pnlBpsExact: number; gcEncoded: number } {
     let totalPnl = 0;
     let allocatedPct = 0;
 
@@ -76,10 +76,15 @@ export class MeanReversionStrategy {
       allocatedPct += pos.sizePercent;
     }
 
-    const pnlBps = Math.round(totalPnl * 100);
+    // Unrounded alongside the rounded value: the duel scores on a notional
+    // position, so snapping to a whole basis point here made every published
+    // score a multiple of the multiplier — a curve that climbed in 1.00% steps
+    // and looked fabricated. Scale first, round once.
+    const pnlBpsExact = totalPnl * 100;
+    const pnlBps = Math.round(pnlBpsExact);
     const gcEncoded = pnlBps + 100_000_000;
 
-    return { publicPnlBps: pnlBps, gcEncoded };
+    return { publicPnlBps: pnlBps, pnlBpsExact, gcEncoded };
   }
 
   executeTrade(asset: string, side: "long" | "short", sizePercent: number, price: number) {
